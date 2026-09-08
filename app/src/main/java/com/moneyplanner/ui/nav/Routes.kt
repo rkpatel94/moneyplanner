@@ -75,8 +75,12 @@ object Routes {
 
     const val GOALS = "goals"
     const val ADD_GOAL = "goals/add"
-    const val GOAL_DETAIL = "goals/{goalId}"
+    const val GOAL_DETAIL = "goals/{goalId}?editContribution={contributionId}"
     fun goalDetail(id: Long) = "goals/$id"
+
+    /** Opens a goal with one of its entries already in the edit sheet. */
+    fun goalDetailEditingContribution(goalId: Long, contributionId: Long) =
+        "goals/$goalId?editContribution=$contributionId"
 
     const val EMERGENCY_FUND = "emergency"
     const val VEHICLES = "vehicles"
@@ -113,6 +117,7 @@ object Routes {
     const val ARG_BILL_ID = "billId"
     const val ARG_ANNUAL_ID = "annualId"
     const val ARG_GOAL_ID = "goalId"
+    const val ARG_CONTRIBUTION_ID = "contributionId"
 }
 
 /**

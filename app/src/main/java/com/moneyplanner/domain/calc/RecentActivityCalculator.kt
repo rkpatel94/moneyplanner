@@ -143,7 +143,8 @@ object RecentActivityCalculator {
                 subtitle = "Set aside, not spent",
                 amount = contribution.amount.abs(),
                 date = contribution.date,
-                direction = ActivityDirection.NEUTRAL
+                direction = ActivityDirection.NEUTRAL,
+                parentId = contribution.goalId
             )
         }
     }
@@ -177,7 +178,8 @@ data class ActivityItem(
     val direction: ActivityDirection,
     /**
      * The record this one hangs off, where reaching its editor needs more than its own id:
-     * the person for a settlement. Null for records that stand alone.
+     * the person for a settlement, the goal for a contribution. Null for records that
+     * stand alone.
      */
     val parentId: Long? = null,
     /** False for a card purchase, which raises the card outstanding instead of taking cash. */
@@ -192,18 +194,15 @@ data class ActivityItem(
     /**
      * Whether tapping the row opens an editor.
      *
-     * Everything except a goal contribution has one. A contribution carries no detail
-     * beyond its amount and date, so correcting it by deleting and re-entering costs the
-     * user nothing an editor would save.
-     *
-     * A settlement is only reachable when its person is known, since its editor lives on
-     * that person's screen.
+     * Every kind has one. Settlements and goal entries are only reachable when their
+     * parent is known, since their editors live on that person's or goal's screen.
      */
     val isEditable: Boolean
-        get() = kind == ActivityKind.EXPENSE ||
-            kind == ActivityKind.INCOME ||
-            kind == ActivityKind.TRANSFER ||
-            (kind == ActivityKind.SETTLEMENT && parentId != null)
+        get() = when (kind) {
+            ActivityKind.EXPENSE, ActivityKind.INCOME, ActivityKind.TRANSFER -> true
+            // Their editors live on the parent's screen, so they need to know it.
+            ActivityKind.SETTLEMENT, ActivityKind.SAVING -> parentId != null
+        }
 
     /** True when this expense settles a bill, an EMI or a yearly commitment. */
     val isObligationPayment: Boolean

@@ -165,6 +165,11 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
                     },
                     onEditTransfer = { id ->
                         navController.navigate(Routes.accountsEditingTransfer(id))
+                    },
+                    onEditContribution = { goalId, contributionId ->
+                        navController.navigate(
+                            Routes.goalDetailEditingContribution(goalId, contributionId)
+                        )
                     }
                 )
             }
@@ -431,7 +436,16 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
 
             composable(
                 route = Routes.GOAL_DETAIL,
-                arguments = listOf(navArgument(Routes.ARG_GOAL_ID) { type = NavType.StringType })
+                arguments = listOf(
+                    navArgument(Routes.ARG_GOAL_ID) { type = NavType.StringType },
+                    // Optional: set when arriving from the activity feed to correct one
+                    // entry, so the sheet opens on it directly.
+                    navArgument(Routes.ARG_CONTRIBUTION_ID) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
             ) {
                 GoalDetailScreen(onBack = { navController.popBackStack() })
             }

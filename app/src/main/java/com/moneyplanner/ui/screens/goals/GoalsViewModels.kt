@@ -16,6 +16,7 @@ import com.moneyplanner.domain.model.GoalPriority
 import com.moneyplanner.domain.model.SavingsContribution
 import com.moneyplanner.domain.model.SavingsGoal
 import com.moneyplanner.ui.nav.Routes
+import com.moneyplanner.ui.screens.expenses.toEditableText
 import com.moneyplanner.di.DefaultDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -125,6 +126,78 @@ class GoalDetailViewModel @Inject constructor(
 
     fun deleteContribution(id: Long) {
         viewModelScope.launch { savingsRepository.deleteContribution(id) }
+    }
+
+    // ---- Correcting an entry -------------------------------------------------------
+
+    private val _entryForm = MutableStateFlow(ContributionForm())
+    val entryForm: StateFlow<ContributionForm> = _entryForm.asStateFlow()
+
+    init {
+        // Arrived from the activity feed, which names one entry to correct.
+        val requested = savedStateHandle.get<String>(Routes.ARG_CONTRIBUTION_ID)?.toLongOrNull()
+        if (requested != null) {
+            viewModelScope.launch {
+                savingsRepository.getContribution(requested)?.let(::startEditingEntry)
+            }
+        }
+    }
+
+    /**
+     * Opens the sheet on an entry already recorded.
+     *
+     * The stored amount is signed, with a withdrawal held as a negative. The form splits
+     * that into a positive figure and a direction, because "-2,000" is a representation
+     * detail and asking someone to retype a minus sign to correct a withdrawal is asking
+     * them to know it.
+     */
+    fun startEditingEntry(contribution: SavingsContribution) {
+        _entryForm.value = ContributionForm(
+            isOpen = true,
+            editingId = contribution.id,
+            amountText = contribution.amount.abs().toEditableText(),
+            isWithdrawal = contribution.amount.isNegative,
+            date = contribution.date,
+            notes = contribution.notes,
+            accountId = contribution.accountId
+        )
+    }
+
+    fun dismissEntry() {
+        _entryForm.value = ContributionForm()
+    }
+
+    fun updateEntryAmount(value: String) =
+        _entryForm.update { it.copy(amountText = value, error = null) }
+
+    fun updateEntryWithdrawal(value: Boolean) =
+        _entryForm.update { it.copy(isWithdrawal = value) }
+
+    fun updateEntryDate(value: LocalDate) = _entryForm.update { it.copy(date = value) }
+
+    fun updateEntryNotes(value: String) = _entryForm.update { it.copy(notes = value) }
+
+    fun saveEntry() {
+        val current = _entryForm.value
+        val editingId = current.editingId ?: return
+        val amount = Money.parseOrNull(current.amountText)
+        if (amount == null || !amount.isPositive) {
+            _entryForm.update { it.copy(error = "Enter an amount greater than zero") }
+            return
+        }
+        viewModelScope.launch {
+            savingsRepository.updateContribution(
+                SavingsContribution(
+                    id = editingId,
+                    goalId = goalId,
+                    amount = if (current.isWithdrawal) -amount else amount,
+                    date = current.date,
+                    accountId = current.accountId,
+                    notes = current.notes.trim()
+                )
+            )
+            _entryForm.value = ContributionForm()
+        }
     }
 
     fun delete(onDeleted: () -> Unit) {
@@ -302,3 +375,23 @@ data class EmergencyFundState(
     val profile: com.moneyplanner.domain.model.UserProfile = com.moneyplanner.domain.model.UserProfile(),
     val isLoading: Boolean = true
 )
+
+/**
+ * An entry against a goal being corrected.
+ *
+ * Direction is held separately from the amount rather than as a sign, so the sheet can ask
+ * for a plain positive figure and a choice between adding and taking out.
+ */
+data class ContributionForm(
+    val isOpen: Boolean = false,
+    val editingId: Long? = null,
+    val amountText: String = "",
+    val isWithdrawal: Boolean = false,
+    val date: LocalDate = LocalDate.now(),
+    val notes: String = "",
+    /** Carried through untouched so an edit cannot blank it. */
+    val accountId: Long? = null,
+    val error: String? = null
+) {
+    val canSave: Boolean get() = Money.parseOrNull(amountText)?.isPositive == true
+}

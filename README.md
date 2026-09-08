@@ -277,11 +277,14 @@ what someone needs after typing a figure wrong.
 
 **More → Recent activity** shows the last ten money movements of every kind together —
 expenses, receipts, payments to and from people, transfers between accounts, and money set
-aside into goals. Tapping a row opens its editor and anything can be deleted. Each record
+aside into goals. Tapping a row opens its editor and anything can be deleted. Every record
 is also editable where it already lives: receipts on the income screen, settlements on the
-person's screen, transfers on the accounts screen. Only a goal contribution has no editor,
-since it carries nothing beyond an amount and a date that re-entering would not fix just
-as quickly.
+person's screen, transfers on the accounts screen, and goal entries on the goal's screen.
+
+A goal entry asks for a direction and a positive amount rather than a signed figure. A
+withdrawal is stored as a negative contribution, which is what keeps the history complete
+instead of quietly erasing the deposit it reversed, but that is a storage detail and nobody
+should have to type a minus sign to correct one.
 
 A transfer keeps the wording it was created with. Correcting a bank-to-cash movement still
 reads as a withdrawal rather than reverting to the generic "move money", because that is
@@ -396,7 +399,7 @@ reconciliation adjustment.
 
 ## Tests
 
-272 JVM unit tests, all passing, covering every calculator plus the voice parser,
+274 JVM unit tests, all passing, covering every calculator plus the voice parser,
 the bank SMS parser, the assistant, budgets, runway, prepayment and insights:
 
 ```bash

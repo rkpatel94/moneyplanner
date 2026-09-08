@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -45,6 +47,7 @@ import com.moneyplanner.core.time.DateUtil
 import com.moneyplanner.domain.model.GoalPriority
 import com.moneyplanner.ui.components.AmountField
 import com.moneyplanner.ui.components.ChipSelector
+import com.moneyplanner.ui.components.DateField
 import com.moneyplanner.ui.components.ConfirmDialog
 import com.moneyplanner.ui.components.EmptyState
 import com.moneyplanner.ui.components.GoalProgressBar
@@ -206,6 +209,7 @@ fun GoalDetailScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val contributionText by viewModel.contributionText.collectAsStateWithLifecycle()
+    val entryForm by viewModel.entryForm.collectAsStateWithLifecycle()
     var showDelete by remember { mutableStateOf(false) }
     val colors = MoneyTheme.colors
 
@@ -316,6 +320,7 @@ fun GoalDetailScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .clickable { viewModel.startEditingEntry(contribution) }
                             .padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -348,6 +353,70 @@ fun GoalDetailScreen(
             onDismiss = { showDelete = false }
         )
     }
+
+    if (entryForm.isOpen) {
+        ContributionDialog(form = entryForm, viewModel = viewModel)
+    }
+}
+
+/**
+ * Correcting an entry against a goal.
+ *
+ * Direction is a choice rather than a sign the user has to type. A withdrawal is stored as
+ * a negative amount, which keeps the history complete, but "-2,000" is a storage detail
+ * and nobody should have to know it to fix a typo.
+ */
+@Composable
+private fun ContributionDialog(
+    form: ContributionForm,
+    viewModel: GoalDetailViewModel
+) {
+    AlertDialog(
+        onDismissRequest = viewModel::dismissEntry,
+        shape = MaterialTheme.shapes.large,
+        title = { Text(if (form.isWithdrawal) "Edit money taken out" else "Edit money added") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Money in a goal is set aside, not spent. It stays in your balance " +
+                        "and is reported separately as earmarked.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                ChipSelector(
+                    label = "Direction",
+                    options = listOf(false, true),
+                    selected = form.isWithdrawal,
+                    onSelect = viewModel::updateEntryWithdrawal,
+                    optionLabel = { if (it) "Taken out" else "Added" }
+                )
+
+                AmountField(
+                    value = form.amountText,
+                    onValueChange = viewModel::updateEntryAmount,
+                    label = "Amount",
+                    isError = form.error != null,
+                    errorMessage = form.error
+                )
+
+                DateField(date = form.date, onDateChange = viewModel::updateEntryDate)
+
+                LabelledTextField(
+                    value = form.notes,
+                    onValueChange = viewModel::updateEntryNotes,
+                    label = "Note (optional)",
+                    imeAction = ImeAction.Done
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = viewModel::saveEntry, enabled = form.canSave) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = viewModel::dismissEntry) { Text("Cancel") }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

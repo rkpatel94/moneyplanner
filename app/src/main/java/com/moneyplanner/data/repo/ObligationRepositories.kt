@@ -393,6 +393,32 @@ class SavingsRepository @Inject constructor(
         notes: String = ""
     ): Long = contribute(goalId, -amount.abs(), on, notes)
 
+    suspend fun getContribution(id: Long): SavingsContribution? =
+        dao.getContribution(id)?.toDomain()
+
+    /**
+     * Corrects an entry already recorded against a goal.
+     *
+     * The sign carries the direction: money taken back out of a goal is stored as a
+     * negative contribution, which is what keeps the history complete rather than
+     * quietly erasing the deposit it reversed. An edit that flips the direction simply
+     * flips the sign, and the goal balance follows, since it is the sum of the entries
+     * and never a stored total.
+     */
+    suspend fun updateContribution(contribution: SavingsContribution) =
+        dao.updateContribution(
+            SavingsContributionEntity(
+                id = contribution.id,
+                goalId = contribution.goalId,
+                amountPaise = contribution.amount.paise,
+                dateEpochDay = contribution.date.toEpochDay(),
+                // Carried rather than defaulted: rebuilding the row without it would
+                // blank whichever account the entry was filed against.
+                accountId = contribution.accountId,
+                notes = contribution.notes
+            )
+        )
+
     suspend fun deleteContribution(id: Long) = dao.deleteContributionById(id)
 
     /** Creates the emergency fund goal if the user does not have one yet. */

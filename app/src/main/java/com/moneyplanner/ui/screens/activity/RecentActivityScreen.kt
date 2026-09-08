@@ -66,6 +66,7 @@ fun RecentActivityScreen(
     onEditIncome: (Long) -> Unit,
     onEditSettlement: (personId: Long, settlementId: Long) -> Unit,
     onEditTransfer: (Long) -> Unit,
+    onEditContribution: (goalId: Long, contributionId: Long) -> Unit,
     viewModel: RecentActivityViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -129,7 +130,8 @@ fun RecentActivityScreen(
                                 ActivityKind.SETTLEMENT ->
                                     item.parentId?.let { onEditSettlement(it, item.recordId) }
                                 ActivityKind.TRANSFER -> onEditTransfer(item.recordId)
-                                else -> Unit
+                                ActivityKind.SAVING ->
+                                    item.parentId?.let { onEditContribution(it, item.recordId) }
                             }
                         },
                         onDelete = { viewModel.askToDelete(item) }

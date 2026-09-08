@@ -291,6 +291,12 @@ interface SavingsDao {
     @Delete
     suspend fun deleteContribution(contribution: SavingsContributionEntity)
 
+    @Update
+    suspend fun updateContribution(contribution: SavingsContributionEntity)
+
+    @Query("SELECT * FROM savings_contributions WHERE id = :id")
+    suspend fun getContribution(id: Long): SavingsContributionEntity?
+
     @Query("DELETE FROM savings_contributions WHERE id = :id")
     suspend fun deleteContributionById(id: Long)
 }

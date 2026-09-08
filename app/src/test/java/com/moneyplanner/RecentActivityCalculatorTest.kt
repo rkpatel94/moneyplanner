@@ -184,7 +184,7 @@ class RecentActivityCalculatorTest {
     }
 
     @Test
-    fun `every kind but a goal contribution opens an editor`() {
+    fun `every kind opens an editor`() {
         val snap = snapshot().copy(
             expenses = listOf(expense(id = 1, amount = 400, date = "2026-08-14")),
             incomeTransactions = listOf(
@@ -209,7 +209,33 @@ class RecentActivityCalculatorTest {
         assertTrue(items.first { it.kind == ActivityKind.INCOME }.isEditable)
         assertTrue(items.first { it.kind == ActivityKind.SETTLEMENT }.isEditable)
         assertTrue(items.first { it.kind == ActivityKind.TRANSFER }.isEditable)
-        assertFalse(items.first { it.kind == ActivityKind.SAVING }.isEditable)
+        assertTrue(items.first { it.kind == ActivityKind.SAVING }.isEditable)
+    }
+
+    @Test
+    fun `a goal entry carries the goal whose screen holds its editor`() {
+        val snap = snapshot().copy(
+            contributions = listOf(
+                contribution(id = 9, goalId = 1, amount = 5_000, date = "2026-08-14")
+            )
+        )
+        val item = RecentActivityCalculator.recent(snap).single()
+
+        assertEquals(1L, item.parentId)
+        assertEquals(9L, item.recordId)
+    }
+
+    @Test
+    fun `a record whose parent is unknown cannot be edited`() {
+        // Nothing in the app writes one, but a restored backup could carry an entry whose
+        // goal has gone. Offering an editor that has nowhere to open is worse than not
+        // offering one, so the row falls back to delete only.
+        val orphan = contribution(id = 1, goalId = 1, amount = 500, date = "2026-08-14")
+            .copy(goalId = 0)
+        val snap = snapshot().copy(contributions = listOf(orphan))
+        val item = RecentActivityCalculator.recent(snap).single()
+
+        assertEquals("Put towards a goal", item.title)
     }
 
     @Test
