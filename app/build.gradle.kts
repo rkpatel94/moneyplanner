@@ -98,6 +98,20 @@ android {
             isReturnDefaultValues = true
         }
     }
+
+    /**
+     * The exported Room schemas ship inside the instrumentation APK.
+     *
+     * MigrationTestHelper opens a real database at an old version by reading the schema
+     * Room exported for it, and it looks for that JSON in the test APK's own assets. With
+     * `room.schemaLocation` alone the files exist on disk but never reach the device, so
+     * every migration test fails on a missing file before it can test anything.
+     */
+    sourceSets {
+        getByName("androidTest") {
+            assets.srcDirs(files("$projectDir/schemas"))
+        }
+    }
 }
 
 ksp {

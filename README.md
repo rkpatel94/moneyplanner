@@ -417,9 +417,18 @@ the September cash flow (₹19,000 remaining) and the emergency fund shortfall
 (₹1,80,000 target, ₹70,000 saved, ₹1,10,000 to go).
 
 `app/src/androidTest` holds 15 instrumentation tests: database integrity (cascade deletes,
-restrict constraints, restore ordering), per-period payment undo, and replaying a real v2
-database through the migrations. **These have not been executed** — no emulator or device
-was available in this environment. They compile.
+restrict constraints, restore ordering), per-period payment undo, and replaying real
+databases through every migration. All 15 pass on an API 37 emulator:
+
+```bash
+./gradlew connectedDebugAndroidTest
+```
+
+The exported schemas are registered as `androidTest` assets, because
+`MigrationTestHelper` reads them from the test APK rather than from disk. Without that the
+four migration tests fail on a missing file before they can test anything, which is how
+they sat unrun for so long. `connectedDebugAndroidTest` also needs network on its first
+run to fetch the test platform, so it cannot be run `--offline` from cold.
 
 > `JAVA_HOME` must point at a complete JDK 17+. If it points at an Android Studio bundled
 > runtime whose `lib` directory is incomplete, Gradle exits immediately with

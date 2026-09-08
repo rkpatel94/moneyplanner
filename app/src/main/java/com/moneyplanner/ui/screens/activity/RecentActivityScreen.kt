@@ -111,8 +111,13 @@ fun RecentActivityScreen(
             ) {
                 item {
                     Text(
-                        "The last ${state.items.size} money movements. Tap one to change " +
-                            "it, or remove anything that should not be there.",
+                        if (state.items.size == 1) {
+                            "Your most recent money movement. Tap it to change it, or " +
+                                "remove it if it should not be there."
+                        } else {
+                            "The last ${state.items.size} money movements. Tap one to " +
+                                "change it, or remove anything that should not be there."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
