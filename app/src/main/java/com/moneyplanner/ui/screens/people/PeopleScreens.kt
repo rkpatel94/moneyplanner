@@ -349,7 +349,7 @@ fun PersonDetailScreen(
             val rows = state.allocation?.rows.orEmpty()
             if (rows.isNotEmpty()) {
                 item { GroupHeader("Entries") }
-                items(rows, key = { it.entry.id }) { row ->
+                items(rows, key = { "entry-${it.entry.id}" }) { row ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -406,7 +406,7 @@ fun PersonDetailScreen(
 
             if (state.settlements.isNotEmpty()) {
                 item { GroupHeader("Settlement history") }
-                items(state.settlements, key = { it.id }) { settlement ->
+                items(state.settlements, key = { "settlement-${it.id}" }) { settlement ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

@@ -332,8 +332,8 @@ data class TransferForm(
  * What the user thinks they are doing. All three write the same transfer; only the
  * wording and the pre-filled direction differ.
  */
-enum class TransferMode(val title: String, val action: String) {
-    MOVE("Move money", "Move"),
-    WITHDRAW("Withdraw cash", "Withdraw"),
-    DEPOSIT("Deposit cash", "Deposit")
+enum class TransferMode(val title: String, val editTitle: String, val action: String) {
+    MOVE("Move money", "Edit transfer", "Move"),
+    WITHDRAW("Withdraw cash", "Edit withdrawal", "Withdraw"),
+    DEPOSIT("Deposit cash", "Edit deposit", "Deposit")
 }

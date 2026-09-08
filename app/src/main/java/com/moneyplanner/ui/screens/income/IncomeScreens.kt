@@ -130,7 +130,7 @@ fun IncomeScreen(
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }
-                items(state.sources, key = { it.source.id }) { row ->
+                items(state.sources, key = { "source-${it.source.id}" }) { row ->
                     SectionCard {
                         Row(
                             modifier = Modifier
@@ -188,7 +188,7 @@ fun IncomeScreen(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
-                items(state.recentReceipts, key = { it.id }) { receipt ->
+                items(state.recentReceipts, key = { "receipt-${it.id}" }) { receipt ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

@@ -119,7 +119,10 @@ object RecentActivityCalculator {
                 kind = ActivityKind.TRANSFER,
                 recordId = transfer.id,
                 title = "$from → $to",
-                subtitle = "Moved between your accounts",
+                // Short enough to survive the row's single line next to a date. The title
+                // already names both accounts, so this says the thing a reader might
+                // otherwise get wrong rather than repeating it.
+                subtitle = "Not income or spending",
                 amount = transfer.amount,
                 date = transfer.date,
                 direction = ActivityDirection.NEUTRAL

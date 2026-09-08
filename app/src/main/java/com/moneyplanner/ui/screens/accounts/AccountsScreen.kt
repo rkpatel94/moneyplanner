@@ -168,7 +168,7 @@ fun AccountsScreen(
                     }
                 }
 
-                items(balances.rows, key = { it.account.id }) { row ->
+                items(balances.rows, key = { "account-${it.account.id}" }) { row ->
                     AccountCard(
                         row = row,
                         onEdit = { viewModel.startEditing(row.account) },
@@ -185,7 +185,7 @@ fun AccountsScreen(
                         modifier = Modifier.padding(top = 8.dp)
                     )
                 }
-                items(state.transfers, key = { it.id }) { transfer ->
+                items(state.transfers, key = { "transfer-${it.id}" }) { transfer ->
                     SectionCard {
                         Row(
                             modifier = Modifier
@@ -378,12 +378,7 @@ private fun TransferDialog(
     AlertDialog(
         onDismissRequest = viewModel::dismissTransfer,
         shape = MaterialTheme.shapes.large,
-        title = {
-            Text(
-                if (form.isEditing) "Edit ${form.mode.title.lowercase()}"
-                else form.mode.title
-            )
-        },
+        title = { Text(if (form.isEditing) form.mode.editTitle else form.mode.title) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
