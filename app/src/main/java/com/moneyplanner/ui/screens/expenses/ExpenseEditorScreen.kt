@@ -1,6 +1,7 @@
 package com.moneyplanner.ui.screens.expenses
 
 import android.content.Intent
+import android.provider.OpenableColumns
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -92,6 +94,7 @@ fun ExpenseEditorScreen(
 ) {
     val form by viewModel.form.collectAsStateWithLifecycle()
     val options by viewModel.options.collectAsStateWithLifecycle()
+    val attachments by viewModel.attachments.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
     val amountFocus = remember { FocusRequester() }
@@ -112,6 +115,24 @@ fun ExpenseEditorScreen(
             ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
             ?.firstOrNull()
         if (!spoken.isNullOrBlank()) viewModel.applySpoken(spoken)
+    }
+
+    // OpenDocument grants persistent access to one selected receipt, rather than broad
+    // photo/storage access. It accepts images and PDFs because both are common receipts.
+    val attachmentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        }
+        val name = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+            ?: "Receipt"
+        val type = context.contentResolver.getType(uri) ?: "application/octet-stream"
+        viewModel.addAttachment(uri.toString(), name, type)
     }
 
     fun startVoiceEntry() {
@@ -407,6 +428,42 @@ fun ExpenseEditorScreen(
                         singleLine = false,
                         imeAction = ImeAction.Done
                     )
+                    Spacer(Modifier.height(12.dp))
+                    LabelledTextField(
+                        value = form.tagsText,
+                        onValueChange = viewModel::updateTags,
+                        label = "Tags (separate with commas)",
+                        imeAction = ImeAction.Done
+                    )
+                    if (form.isEditing) {
+                        Spacer(Modifier.height(16.dp))
+                        Text("Receipt attachments", style = MaterialTheme.typography.labelLarge)
+                        Text(
+                            "Attach a photo or PDF. The original stays where you selected it.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(
+                            onClick = { attachmentLauncher.launch(arrayOf("image/*", "application/pdf")) },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.AttachFile, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Attach receipt")
+                        }
+                        attachments.forEach { attachment ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(attachment.displayName, modifier = Modifier.weight(1f), maxLines = 1)
+                                IconButton(onClick = { viewModel.deleteAttachment(attachment.id) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Remove attachment")
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

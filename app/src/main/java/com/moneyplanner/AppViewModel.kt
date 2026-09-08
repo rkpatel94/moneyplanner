@@ -2,16 +2,21 @@ package com.moneyplanner
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
 import com.moneyplanner.data.prefs.SettingsStore
 import com.moneyplanner.data.prefs.ThemeMode
 import com.moneyplanner.data.repo.ProfileRepository
+import com.moneyplanner.data.repo.SnapshotRepository
 import com.moneyplanner.work.ReminderScheduler
+import com.moneyplanner.widget.BalanceWidgetProvider
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -26,8 +31,10 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class AppViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val settingsStore: SettingsStore,
     private val profileRepository: ProfileRepository,
+    private val snapshotRepository: SnapshotRepository,
     private val reminderScheduler: ReminderScheduler
 ) : ViewModel() {
 
@@ -50,6 +57,12 @@ class AppViewModel @Inject constructor(
                 reminderScheduler.scheduleDailyCheck(settings.reminderHour)
             }
             started.value = true
+            BalanceWidgetProvider.refresh(context)
+        }
+        // The widget has no network refresh. Repainting it when the authoritative
+        // snapshot changes keeps its balance aligned with an expense, income or transfer.
+        viewModelScope.launch {
+            snapshotRepository.snapshot.collect { BalanceWidgetProvider.refresh(context) }
         }
     }
 

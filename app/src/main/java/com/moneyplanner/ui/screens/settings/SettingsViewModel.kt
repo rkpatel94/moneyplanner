@@ -8,6 +8,9 @@ import com.moneyplanner.data.backup.AutoBackupManager
 import com.moneyplanner.data.backup.BackupManager
 import com.moneyplanner.data.backup.ExportResult
 import com.moneyplanner.data.backup.TransactionExporter
+import com.moneyplanner.data.backup.PdfTransactionExporter
+import com.moneyplanner.data.backup.CsvExpenseImporter
+import com.moneyplanner.data.backup.CsvImportResult
 import com.moneyplanner.data.backup.RestoreResult
 import com.moneyplanner.data.prefs.AppSettings
 import com.moneyplanner.data.prefs.SettingsStore
@@ -47,6 +50,8 @@ class SettingsViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val backupManager: BackupManager,
     private val transactionExporter: TransactionExporter,
+    private val pdfTransactionExporter: PdfTransactionExporter,
+    private val csvExpenseImporter: CsvExpenseImporter,
     private val reminderScheduler: ReminderScheduler,
     private val autoBackupManager: AutoBackupManager,
     private val autoBackupScheduler: AutoBackupScheduler,
@@ -199,6 +204,29 @@ class SettingsViewModel @Inject constructor(
                 .onFailure {
                     _events.value = SettingsEvent.Message("The export could not be created.")
                 }
+        }
+    }
+
+    /** A printable statement for the current month, created locally. */
+    fun exportPdf() {
+        viewModelScope.launch {
+            val now = today.today()
+            _events.value = when (val result = pdfTransactionExporter.export(now.withDayOfMonth(1), now)) {
+                is ExportResult.Success -> SettingsEvent.ShareFile(result.file, "application/pdf")
+                is ExportResult.Empty -> SettingsEvent.Message("Nothing was recorded this month.")
+                is ExportResult.Failure -> SettingsEvent.Message(result.message)
+            }
+        }
+    }
+
+    fun importCsv(uri: Uri) {
+        viewModelScope.launch {
+            _events.value = when (val result = csvExpenseImporter.import(uri)) {
+                is CsvImportResult.Success -> SettingsEvent.Message(
+                    "Imported ${result.imported} expenses" + if (result.skipped == 0) "." else "; skipped ${result.skipped} invalid rows."
+                )
+                is CsvImportResult.Failure -> SettingsEvent.Message(result.message)
+            }
         }
     }
 

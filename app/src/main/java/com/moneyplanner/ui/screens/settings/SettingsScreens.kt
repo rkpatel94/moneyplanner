@@ -92,6 +92,10 @@ fun SettingsScreen(
         ActivityResultContracts.OpenDocument()
     ) { uri -> uri?.let(viewModel::restoreBackup) }
 
+    val csvImportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(viewModel::importCsv) }
+
     val folderLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocumentTree()
     ) { uri -> uri?.let(viewModel::setBackupFolder) }
@@ -345,6 +349,16 @@ fun SettingsScreen(
                         onClick = viewModel::exportCsv,
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Export expenses as CSV") }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = viewModel::exportPdf,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Export this month to PDF") }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = { csvImportLauncher.launch(arrayOf("text/csv", "text/comma-separated-values", "application/csv")) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Import expenses from CSV") }
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
                         onClick = { restoreLauncher.launch(arrayOf("application/json", "*/*")) },

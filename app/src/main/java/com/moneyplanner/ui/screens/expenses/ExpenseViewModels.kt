@@ -8,6 +8,7 @@ import com.moneyplanner.core.money.sumOfMoney
 import com.moneyplanner.data.repo.CategoryRepository
 import com.moneyplanner.data.repo.CreditCardRepository
 import com.moneyplanner.data.repo.ExpenseRepository
+import com.moneyplanner.data.repo.ExpenseMetadataRepository
 import com.moneyplanner.data.repo.LinkedPaymentSync
 import com.moneyplanner.data.repo.FamilyRepository
 import com.moneyplanner.data.repo.PeopleRepository
@@ -34,6 +35,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -123,6 +125,7 @@ data class TransactionsState(
 @HiltViewModel
 class ExpenseEditorViewModel @Inject constructor(
     private val expenseRepository: ExpenseRepository,
+    private val metadataRepository: ExpenseMetadataRepository,
     private val linkedPaymentSync: LinkedPaymentSync,
     categoryRepository: CategoryRepository,
     peopleRepository: PeopleRepository,
@@ -140,6 +143,10 @@ class ExpenseEditorViewModel @Inject constructor(
         ExpenseForm(date = today.today(), isEditing = expenseId != null)
     )
     val form: StateFlow<ExpenseForm> = _form.asStateFlow()
+
+    /** Attachments are available after the expense exists; new expenses save first. */
+    val attachments = (expenseId?.let(metadataRepository::attachments) ?: flowOf(emptyList()))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val options: StateFlow<ExpenseEditorOptions> = combine(
         categoryRepository.expenseCategories,
@@ -168,6 +175,7 @@ class ExpenseEditorViewModel @Inject constructor(
         if (expenseId != null) {
             viewModelScope.launch {
                 expenseRepository.getById(expenseId)?.let { existing ->
+                    val tags = metadataRepository.tagsForExpense(expenseId)
                     _form.value = ExpenseForm(
                         amountText = existing.amount.toEditableText(),
                         description = existing.description,
@@ -181,6 +189,7 @@ class ExpenseEditorViewModel @Inject constructor(
                         accountTouched = true,
                         creditCardId = existing.creditCardId,
                         notes = existing.notes,
+                        tagsText = tags.joinToString(", "),
                         isEditing = true,
                         isLinked = existing.linkType != com.moneyplanner.domain.model.ExpenseLinkType.NONE
                     )
@@ -254,6 +263,16 @@ class ExpenseEditorViewModel @Inject constructor(
     fun selectAccount(id: Long?) =
         _form.update { it.copy(accountId = id, accountTouched = true) }
     fun updateNotes(text: String) = _form.update { it.copy(notes = text) }
+    fun updateTags(text: String) = _form.update { it.copy(tagsText = text) }
+
+    fun addAttachment(uri: String, displayName: String, mimeType: String) {
+        val id = expenseId ?: return
+        viewModelScope.launch { metadataRepository.addAttachment(id, uri, displayName, mimeType) }
+    }
+
+    fun deleteAttachment(id: Long) {
+        viewModelScope.launch { metadataRepository.deleteAttachment(id) }
+    }
 
     /**
      * Fills the form from a spoken sentence.
@@ -328,11 +347,13 @@ class ExpenseEditorViewModel @Inject constructor(
                     linkPeriodKey = existing?.linkPeriodKey
                 )
                 expenseRepository.update(updated)
+                metadataRepository.replaceTags(expenseId, current.tagsText.split(','))
                 // The payment record behind a linked expense describes the same event, so
                 // a corrected amount has to reach it too or the two will disagree.
                 linkedPaymentSync.syncFromExpense(updated)
             } else {
-                expenseRepository.add(expense)
+                val id = expenseRepository.add(expense)
+                metadataRepository.replaceTags(id, current.tagsText.split(','))
             }
             onSaved()
         }
@@ -366,6 +387,8 @@ data class ExpenseForm(
     val accountTouched: Boolean = false,
     val creditCardId: Long? = null,
     val notes: String = "",
+    /** Comma-separated in the compact editor, stored as normalized individual labels. */
+    val tagsText: String = "",
     val amountError: String? = null,
     val categoryError: String? = null,
     val isEditing: Boolean = false,

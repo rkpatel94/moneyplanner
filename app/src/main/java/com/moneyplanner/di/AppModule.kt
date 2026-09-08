@@ -10,6 +10,7 @@ import com.moneyplanner.data.db.dao.CategoryDao
 import com.moneyplanner.data.db.dao.CreditCardDao
 import com.moneyplanner.data.db.dao.EmiDao
 import com.moneyplanner.data.db.dao.ExpenseDao
+import com.moneyplanner.data.db.dao.ExpenseMetadataDao
 import com.moneyplanner.data.db.dao.FamilyDao
 import com.moneyplanner.data.db.dao.IncomeDao
 import com.moneyplanner.data.db.dao.PeopleDao
@@ -62,6 +63,7 @@ object AppModule {
     @Provides fun provideFamilyDao(db: AppDatabase): FamilyDao = db.familyDao()
     @Provides fun provideIncomeDao(db: AppDatabase): IncomeDao = db.incomeDao()
     @Provides fun provideExpenseDao(db: AppDatabase): ExpenseDao = db.expenseDao()
+    @Provides fun provideExpenseMetadataDao(db: AppDatabase): ExpenseMetadataDao = db.expenseMetadataDao()
     @Provides fun providePeopleDao(db: AppDatabase): PeopleDao = db.peopleDao()
     @Provides fun provideEmiDao(db: AppDatabase): EmiDao = db.emiDao()
     @Provides fun provideCreditCardDao(db: AppDatabase): CreditCardDao = db.creditCardDao()

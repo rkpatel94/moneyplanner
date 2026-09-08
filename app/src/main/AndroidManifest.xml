@@ -61,6 +61,18 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".widget.BalanceWidgetProvider"
+            android:exported="false"
+            android:label="Available balance">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/balance_widget_info" />
+        </receiver>
+
         <!-- Hilt provides the WorkerFactory, so disable WorkManager's default initializer. -->
         <provider
             android:name="androidx.startup.InitializationProvider"

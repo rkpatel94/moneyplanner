@@ -161,7 +161,7 @@ it happens.
 
 ### Schema migrations
 
-The database is at **version 4**, with three migrations. Every statement is copied from the
+The database is at **version 5**, with four migrations. Every statement is copied from the
 schema Room itself exported, so the result is byte-identical to a fresh install; Room
 validates that on open and refuses to start if a migration produces anything different.
 All four schema versions are exported to `app/schemas`.
@@ -171,6 +171,7 @@ All four schema versions are exported to `app/schemas`.
 | 1 → 2 | Budgets | Purely additive. No existing table is touched. |
 | 2 → 3 | `linkPeriodKey` on expenses; foreign key on shared shares | Existing rows are backfilled by matching each linked expense to the payment recorded on the same day, so history written earlier can still be undone one period at a time. The shares table is rebuilt rather than altered, because SQLite cannot add a foreign key in place. |
 | 3 → 4 | Transfers between the user's own accounts | Purely additive. A database with no transfers describes exactly the position it did before. |
+| 4 → 5 | Expense tags and receipt attachment metadata | Tags are reusable labels; receipts retain only the document-picker URI, not a copied image. |
 
 Room is deliberately **not** given a destructive fallback: a missing migration must fail
 loudly rather than quietly delete a financial history that cannot be recreated.
@@ -479,19 +480,18 @@ tracking, monthly forecast, calendar, reports, search, "Can I afford it?", remin
 multiple accounts with transfers between them, JSON backup and restore, CSV export, and a
 PIN/biometric app lock.
 
-Phase 5 adds voice entry and an on-device assistant; receipt scanning is deliberately
-omitted (see below).
+Phase 5 adds voice entry and an on-device assistant; expenses can now carry tags and a
+photo or PDF receipt attachment selected through the system picker. Settings exports a
+printable monthly PDF statement, imports the app's expense CSV format, and the launcher
+offers a privacy-aware available-balance widget. Receipt scanning is deliberately omitted
+(see below).
 
 ## Known gaps
 
 - **Not run on a device.** No emulator or physical device was available, so the app has
   been verified by compilation and unit tests only. The first thing to do is install the
   debug APK and walk through the flows.
-- **PDF export** is not implemented; JSON and CSV are. The brief lists PDF as a nice-to-have
-  alongside them.
-- **Home screen widget** is not built.
-- **Receipt photo attachments** are not built (no OCR, just a photo, would need camera).
-- **Tags, CSV import and an 80C tracker** remain on the list.
+- **80C tracker** remains on the list.
 - **Receipt scanning** is not built, to keep the app free of any network permission.
 - **The assistant only understands what it was taught.** It is a rules engine over a fixed
   set of intents, so a question phrased unusually may not match. It says so when that

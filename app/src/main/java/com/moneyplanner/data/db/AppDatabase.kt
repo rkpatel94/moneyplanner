@@ -9,6 +9,7 @@ import com.moneyplanner.data.db.dao.CategoryDao
 import com.moneyplanner.data.db.dao.CreditCardDao
 import com.moneyplanner.data.db.dao.EmiDao
 import com.moneyplanner.data.db.dao.ExpenseDao
+import com.moneyplanner.data.db.dao.ExpenseMetadataDao
 import com.moneyplanner.data.db.dao.FamilyDao
 import com.moneyplanner.data.db.dao.IncomeDao
 import com.moneyplanner.data.db.dao.MaintenanceDao
@@ -29,6 +30,8 @@ import com.moneyplanner.data.db.entity.CreditCardPaymentEntity
 import com.moneyplanner.data.db.entity.EmiEntity
 import com.moneyplanner.data.db.entity.EmiPaymentEntity
 import com.moneyplanner.data.db.entity.ExpenseEntity
+import com.moneyplanner.data.db.entity.ExpenseAttachmentEntity
+import com.moneyplanner.data.db.entity.ExpenseTagEntity
 import com.moneyplanner.data.db.entity.FamilyMemberEntity
 import com.moneyplanner.data.db.entity.IncomeSourceEntity
 import com.moneyplanner.data.db.entity.IncomeTransactionEntity
@@ -42,6 +45,7 @@ import com.moneyplanner.data.db.entity.SharedExpenseEntity
 import com.moneyplanner.data.db.entity.SharedExpenseShareEntity
 import com.moneyplanner.data.db.entity.UserProfileEntity
 import com.moneyplanner.data.db.entity.VehicleEntity
+import com.moneyplanner.data.db.entity.TagEntity
 
 @Database(
     entities = [
@@ -56,6 +60,9 @@ import com.moneyplanner.data.db.entity.VehicleEntity
         IncomeSourceEntity::class,
         IncomeTransactionEntity::class,
         ExpenseEntity::class,
+        TagEntity::class,
+        ExpenseTagEntity::class,
+        ExpenseAttachmentEntity::class,
         PersonLedgerEntryEntity::class,
         SettlementEntity::class,
         SharedExpenseEntity::class,
@@ -72,7 +79,7 @@ import com.moneyplanner.data.db.entity.VehicleEntity
         SavingsContributionEntity::class,
         BudgetEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -83,6 +90,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun familyDao(): FamilyDao
     abstract fun incomeDao(): IncomeDao
     abstract fun expenseDao(): ExpenseDao
+    abstract fun expenseMetadataDao(): ExpenseMetadataDao
     abstract fun peopleDao(): PeopleDao
     abstract fun emiDao(): EmiDao
     abstract fun creditCardDao(): CreditCardDao

@@ -16,6 +16,8 @@ import com.moneyplanner.data.db.entity.CreditCardPaymentEntity
 import com.moneyplanner.data.db.entity.EmiEntity
 import com.moneyplanner.data.db.entity.EmiPaymentEntity
 import com.moneyplanner.data.db.entity.ExpenseEntity
+import com.moneyplanner.data.db.entity.ExpenseAttachmentEntity
+import com.moneyplanner.data.db.entity.ExpenseTagEntity
 import com.moneyplanner.data.db.entity.FamilyMemberEntity
 import com.moneyplanner.data.db.entity.IncomeSourceEntity
 import com.moneyplanner.data.db.entity.IncomeTransactionEntity
@@ -29,6 +31,7 @@ import com.moneyplanner.data.db.entity.SharedExpenseEntity
 import com.moneyplanner.data.db.entity.SharedExpenseShareEntity
 import com.moneyplanner.data.db.entity.UserProfileEntity
 import com.moneyplanner.data.db.entity.VehicleEntity
+import com.moneyplanner.data.db.entity.TagEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
@@ -59,10 +62,10 @@ class BackupManager @Inject constructor(
     companion object {
         /**
          * 2 added `linkPeriodKey` on expenses; 3 adds transfers between accounts. Older
-         * files still restore — a missing section simply yields no rows, which is exactly
+         * 4 adds tags and attachment metadata. Older files still restore — a missing section simply yields no rows, which is exactly
          * what a database written before the feature existed contained.
          */
-        const val FORMAT_VERSION = 3
+        const val FORMAT_VERSION = 4
         private const val EXPORT_DIR = "exports"
 
         /** Characters a spreadsheet reads as the start of a formula. */
@@ -225,6 +228,23 @@ class BackupManager @Inject constructor(
                     put("linkPeriodKey", row.linkPeriodKey ?: JSONObject.NULL)
                     put("notes", row.notes)
                     put("createdAtEpochDay", row.createdAtEpochDay)
+                }
+            })
+
+            put("tags", database.expenseMetadataDao().getAllTags().toJsonArray { row ->
+                JSONObject().apply { put("id", row.id); put("name", row.name) }
+            })
+            put("expenseTags", database.expenseMetadataDao().getAllExpenseTags().toJsonArray { row ->
+                JSONObject().apply { put("expenseId", row.expenseId); put("tagId", row.tagId) }
+            })
+            // Attachment URIs point at documents chosen by the user. A restored URI may
+            // no longer be readable on another device, but retaining its metadata is
+            // more honest than silently pretending the receipt never existed.
+            put("expenseAttachments", database.expenseMetadataDao().getAllAttachments().toJsonArray { row ->
+                JSONObject().apply {
+                    put("id", row.id); put("expenseId", row.expenseId); put("uri", row.uri)
+                    put("displayName", row.displayName); put("mimeType", row.mimeType)
+                    put("addedAtEpochDay", row.addedAtEpochDay)
                 }
             })
 
@@ -633,6 +653,24 @@ class BackupManager @Inject constructor(
                             linkPeriodKey = row.optStringOrNull("linkPeriodKey"),
                             notes = row.optString("notes"),
                             createdAtEpochDay = row.optLong("createdAtEpochDay")
+                        )
+                    )
+                }
+
+                root.forEachObject("tags") { row ->
+                    database.expenseMetadataDao().insertTag(TagEntity(id = row.getLong("id"), name = row.getString("name")))
+                }
+                root.forEachObject("expenseTags") { row ->
+                    database.expenseMetadataDao().insertExpenseTag(
+                        ExpenseTagEntity(expenseId = row.getLong("expenseId"), tagId = row.getLong("tagId"))
+                    )
+                }
+                root.forEachObject("expenseAttachments") { row ->
+                    database.expenseMetadataDao().insertAttachment(
+                        ExpenseAttachmentEntity(
+                            id = row.getLong("id"), expenseId = row.getLong("expenseId"), uri = row.getString("uri"),
+                            displayName = row.getString("displayName"), mimeType = row.getString("mimeType"),
+                            addedAtEpochDay = row.getLong("addedAtEpochDay")
                         )
                     )
                 }
