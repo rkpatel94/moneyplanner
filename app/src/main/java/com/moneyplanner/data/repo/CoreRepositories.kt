@@ -87,6 +87,23 @@ class ProfileRepository @Inject constructor(
         )
     }
 
+    /**
+     * Corrects a transfer that was already recorded.
+     *
+     * Guarded exactly as recording one is, because an edit can introduce the same slips a
+     * new entry can. Nothing else moves with it: account balances are recomputed from the
+     * transfers on every read, so both accounts follow the change at once.
+     *
+     * Returns false when the change was refused, so the caller can say so rather than
+     * reporting a save that did not happen.
+     */
+    suspend fun updateTransfer(transfer: AccountTransfer): Boolean {
+        if (transfer.fromAccountId == transfer.toAccountId) return false
+        if (!transfer.amount.isPositive) return false
+        dao.updateTransfer(transfer.toEntity())
+        return true
+    }
+
     suspend fun deleteTransfer(id: Long) = dao.deleteTransferById(id)
 
     suspend fun saveProfile(profile: UserProfile) {

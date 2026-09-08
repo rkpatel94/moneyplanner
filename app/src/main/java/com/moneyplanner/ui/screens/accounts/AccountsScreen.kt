@@ -1,5 +1,6 @@
 package com.moneyplanner.ui.screens.accounts
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -187,7 +188,9 @@ fun AccountsScreen(
                 items(state.transfers, key = { it.id }) { transfer ->
                     SectionCard {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.startEditingTransfer(transfer) },
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
@@ -375,7 +378,12 @@ private fun TransferDialog(
     AlertDialog(
         onDismissRequest = viewModel::dismissTransfer,
         shape = MaterialTheme.shapes.large,
-        title = { Text(form.mode.title) },
+        title = {
+            Text(
+                if (form.isEditing) "Edit ${form.mode.title.lowercase()}"
+                else form.mode.title
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
@@ -426,7 +434,9 @@ private fun TransferDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = viewModel::saveTransfer) { Text(form.mode.action) }
+            TextButton(onClick = viewModel::saveTransfer) {
+                Text(if (form.isEditing) "Save" else form.mode.action)
+            }
         },
         dismissButton = { TextButton(onClick = viewModel::dismissTransfer) { Text("Cancel") } }
     )

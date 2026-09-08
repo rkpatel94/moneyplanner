@@ -95,13 +95,19 @@ object Routes {
     // backup are sections within it and have no routes of their own.
     const val SETTINGS = "settings"
     const val CATEGORIES = "settings/categories"
-    const val ACCOUNTS = "settings/accounts"
+    const val ACCOUNTS = "settings/accounts?editTransfer={transferId}"
+    fun accounts() = "settings/accounts"
+
+    /** Opens Accounts with one transfer already in the edit sheet. */
+    fun accountsEditingTransfer(transferId: Long) =
+        "settings/accounts?editTransfer=$transferId"
 
     const val ARG_EXPENSE_ID = "expenseId"
     const val ARG_SOURCE_ID = "sourceId"
     const val ARG_RECEIPT_ID = "receiptId"
     const val ARG_PERSON_ID = "personId"
     const val ARG_SETTLEMENT_ID = "settlementId"
+    const val ARG_TRANSFER_ID = "transferId"
     const val ARG_EMI_ID = "emiId"
     const val ARG_CARD_ID = "cardId"
     const val ARG_BILL_ID = "billId"

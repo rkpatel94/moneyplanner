@@ -1,6 +1,7 @@
 package com.moneyplanner.ui.screens.accounts
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.data.repo.ProfileRepository
@@ -12,12 +13,15 @@ import com.moneyplanner.domain.calc.BalanceCalculator
 import com.moneyplanner.domain.model.Account
 import com.moneyplanner.domain.model.AccountTransfer
 import com.moneyplanner.domain.model.AccountType
+import com.moneyplanner.ui.nav.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filterNot
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -38,6 +42,7 @@ class AccountsViewModel @Inject constructor(
     private val profileRepository: ProfileRepository,
     private val today: TodayProvider,
     snapshotRepository: SnapshotRepository,
+    savedStateHandle: SavedStateHandle,
     @DefaultDispatcher private val computation: CoroutineDispatcher
 ) : ViewModel() {
 
@@ -46,6 +51,19 @@ class AccountsViewModel @Inject constructor(
 
     private val _transferForm = MutableStateFlow(TransferForm())
     val transferForm: StateFlow<TransferForm> = _transferForm.asStateFlow()
+
+    init {
+        // Arrived from the activity feed, which names a transfer to correct. The records
+        // have to load first, since the wording is chosen from the accounts involved.
+        val requested = savedStateHandle.get<String>(Routes.ARG_TRANSFER_ID)?.toLongOrNull()
+        if (requested != null) {
+            viewModelScope.launch {
+                state.filterNot { it.isLoading }.first()
+                    .transfers.firstOrNull { it.id == requested }
+                    ?.let(::startEditingTransfer)
+            }
+        }
+    }
 
     val state: StateFlow<AccountsState> = snapshotRepository.snapshot
         .map { snapshot ->
@@ -174,6 +192,34 @@ class AccountsViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Opens the sheet on a transfer already recorded.
+     *
+     * The wording follows the accounts involved rather than defaulting to the generic
+     * "move money": a bank to cash correction is still a withdrawal to the person making
+     * it, and calling it something else at the point of correction is disorienting.
+     */
+    fun startEditingTransfer(transfer: AccountTransfer) {
+        val byId = state.value.accounts.associateBy { it.id }
+        val from = byId[transfer.fromAccountId]?.type
+        val to = byId[transfer.toAccountId]?.type
+
+        _transferForm.value = TransferForm(
+            isOpen = true,
+            editingId = transfer.id,
+            fromId = transfer.fromAccountId,
+            toId = transfer.toAccountId,
+            amountText = transfer.amount.toPlainText(),
+            date = transfer.date,
+            notes = transfer.notes,
+            mode = when {
+                from == AccountType.BANK && to == AccountType.CASH -> TransferMode.WITHDRAW
+                from == AccountType.CASH && to == AccountType.BANK -> TransferMode.DEPOSIT
+                else -> TransferMode.MOVE
+            }
+        )
+    }
+
     fun dismissTransfer() {
         _transferForm.value = TransferForm()
     }
@@ -204,13 +250,27 @@ class AccountsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            profileRepository.transfer(
-                fromAccountId = from!!,
-                toAccountId = to!!,
-                amount = amount!!,
-                on = current.date,
-                notes = current.notes.trim()
-            )
+            val editingId = current.editingId
+            if (editingId != null) {
+                profileRepository.updateTransfer(
+                    AccountTransfer(
+                        id = editingId,
+                        fromAccountId = from!!,
+                        toAccountId = to!!,
+                        amount = amount!!,
+                        date = current.date,
+                        notes = current.notes.trim()
+                    )
+                )
+            } else {
+                profileRepository.transfer(
+                    fromAccountId = from!!,
+                    toAccountId = to!!,
+                    amount = amount!!,
+                    on = current.date,
+                    notes = current.notes.trim()
+                )
+            }
             _transferForm.value = TransferForm()
         }
     }
@@ -255,6 +315,8 @@ data class AccountForm(
 
 data class TransferForm(
     val isOpen: Boolean = false,
+    /** Set when correcting a transfer already recorded, rather than adding one. */
+    val editingId: Long? = null,
     val fromId: Long? = null,
     val toId: Long? = null,
     val amountText: String = "",
@@ -262,7 +324,9 @@ data class TransferForm(
     val notes: String = "",
     val error: String? = null,
     val mode: TransferMode = TransferMode.MOVE
-)
+) {
+    val isEditing: Boolean get() = editingId != null
+}
 
 /**
  * What the user thinks they are doing. All three write the same transfer; only the

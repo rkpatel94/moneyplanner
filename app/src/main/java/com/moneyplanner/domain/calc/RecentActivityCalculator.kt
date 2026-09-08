@@ -192,9 +192,9 @@ data class ActivityItem(
     /**
      * Whether tapping the row opens an editor.
      *
-     * Expenses, income receipts and settlements have one. Transfers and goal
-     * contributions are single facts with nothing to adjust beyond the amount, and are
-     * corrected by deleting and re-entering.
+     * Everything except a goal contribution has one. A contribution carries no detail
+     * beyond its amount and date, so correcting it by deleting and re-entering costs the
+     * user nothing an editor would save.
      *
      * A settlement is only reachable when its person is known, since its editor lives on
      * that person's screen.
@@ -202,6 +202,7 @@ data class ActivityItem(
     val isEditable: Boolean
         get() = kind == ActivityKind.EXPENSE ||
             kind == ActivityKind.INCOME ||
+            kind == ActivityKind.TRANSFER ||
             (kind == ActivityKind.SETTLEMENT && parentId != null)
 
     /** True when this expense settles a bill, an EMI or a yearly commitment. */

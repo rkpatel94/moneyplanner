@@ -277,11 +277,17 @@ what someone needs after typing a figure wrong.
 
 **More → Recent activity** shows the last ten money movements of every kind together —
 expenses, receipts, payments to and from people, transfers between accounts, and money set
-aside into goals. Tapping an expense, a receipt or a payment to a person opens its editor;
-anything can be deleted. Receipts are also editable from the income screen, and settlements
-from the person's own screen, where each is already listed. Transfers and goal
-contributions have no editor: each is a single fact with nothing to adjust beyond its
-amount, date and note, so the correction is to delete and re-enter.
+aside into goals. Tapping a row opens its editor and anything can be deleted. Each record
+is also editable where it already lives: receipts on the income screen, settlements on the
+person's screen, transfers on the accounts screen. Only a goal contribution has no editor,
+since it carries nothing beyond an amount and a date that re-entering would not fix just
+as quickly.
+
+A transfer keeps the wording it was created with. Correcting a bank-to-cash movement still
+reads as a withdrawal rather than reverting to the generic "move money", because that is
+what the person making it calls it. Editing is guarded exactly as recording is: an edit can
+introduce the same two slips a new entry can, naming one account twice or a non-positive
+amount, and both are refused.
 
 Editing a settlement shows the balance **without** that settlement, not the balance as it
 stands. The live balance already has the payment taken off it, so offering that figure

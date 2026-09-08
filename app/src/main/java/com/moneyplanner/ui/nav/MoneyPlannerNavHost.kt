@@ -162,6 +162,9 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
                         navController.navigate(
                             Routes.personDetailEditingSettlement(personId, settlementId)
                         )
+                    },
+                    onEditTransfer = { id ->
+                        navController.navigate(Routes.accountsEditingTransfer(id))
                     }
                 )
             }
@@ -192,7 +195,7 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
             composable(Routes.MORE) {
                 MoreScreen(
                     onOpenRecentActivity = { navController.navigate(Routes.RECENT_ACTIVITY) },
-                    onOpenAccounts = { navController.navigate(Routes.ACCOUNTS) },
+                    onOpenAccounts = { navController.navigate(Routes.accounts()) },
                     onOpenPeople = { navController.navigate(Routes.PEOPLE) },
                     onOpenIncome = { navController.navigate(Routes.INCOME) },
                     onOpenEmis = { navController.navigate(Routes.EMIS) },
@@ -514,7 +517,7 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
                 SettingsScreen(
                     onBack = { navController.popBackStack() },
                     onOpenCategories = { navController.navigate(Routes.CATEGORIES) },
-                    onOpenAccounts = { navController.navigate(Routes.ACCOUNTS) }
+                    onOpenAccounts = { navController.navigate(Routes.accounts()) }
                 )
             }
 
@@ -522,7 +525,18 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
                 CategoriesScreen(onBack = { navController.popBackStack() })
             }
 
-            composable(Routes.ACCOUNTS) {
+            composable(
+                route = Routes.ACCOUNTS,
+                arguments = listOf(
+                    // Optional: set when arriving from the activity feed to correct one
+                    // transfer, so the sheet opens on it directly.
+                    navArgument(Routes.ARG_TRANSFER_ID) {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    }
+                )
+            ) {
                 AccountsScreen(onBack = { navController.popBackStack() })
             }
         }

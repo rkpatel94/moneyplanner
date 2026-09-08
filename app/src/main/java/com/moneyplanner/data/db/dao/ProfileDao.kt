@@ -61,6 +61,9 @@ interface ProfileDao {
     @Insert
     suspend fun insertTransfer(transfer: AccountTransferEntity): Long
 
+    @Update
+    suspend fun updateTransfer(transfer: AccountTransferEntity)
+
     @Query("DELETE FROM account_transfers WHERE id = :id")
     suspend fun deleteTransferById(id: Long)
 

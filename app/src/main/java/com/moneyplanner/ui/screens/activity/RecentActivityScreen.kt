@@ -65,6 +65,7 @@ fun RecentActivityScreen(
     onEditExpense: (Long) -> Unit,
     onEditIncome: (Long) -> Unit,
     onEditSettlement: (personId: Long, settlementId: Long) -> Unit,
+    onEditTransfer: (Long) -> Unit,
     viewModel: RecentActivityViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -109,9 +110,8 @@ fun RecentActivityScreen(
             ) {
                 item {
                     Text(
-                        "The last ${state.items.size} money movements. Tap an expense, a " +
-                            "receipt or a payment to change it, or remove anything that " +
-                            "should not be there.",
+                        "The last ${state.items.size} money movements. Tap one to change " +
+                            "it, or remove anything that should not be there.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -128,6 +128,7 @@ fun RecentActivityScreen(
                                 ActivityKind.INCOME -> onEditIncome(item.recordId)
                                 ActivityKind.SETTLEMENT ->
                                     item.parentId?.let { onEditSettlement(it, item.recordId) }
+                                ActivityKind.TRANSFER -> onEditTransfer(item.recordId)
                                 else -> Unit
                             }
                         },

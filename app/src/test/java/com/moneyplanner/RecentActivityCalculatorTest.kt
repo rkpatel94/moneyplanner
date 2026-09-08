@@ -184,13 +184,23 @@ class RecentActivityCalculatorTest {
     }
 
     @Test
-    fun `expenses and receipts open an editor, other records do not`() {
+    fun `every kind but a goal contribution opens an editor`() {
         val snap = snapshot().copy(
             expenses = listOf(expense(id = 1, amount = 400, date = "2026-08-14")),
             incomeTransactions = listOf(
                 incomeTransaction(id = 1, amount = 55_000, date = "2026-08-14")
             ),
             settlements = listOf(settlement(id = 1, amount = 1_000, date = "2026-08-14")),
+            transfers = listOf(
+                AccountTransfer(
+                    id = 1,
+                    fromAccountId = 1,
+                    toAccountId = 2,
+                    amount = rupees(500),
+                    date = date("2026-08-14"),
+                    notes = ""
+                )
+            ),
             contributions = listOf(contribution(id = 1, amount = 500, date = "2026-08-14"))
         )
         val items = RecentActivityCalculator.recent(snap)
@@ -198,6 +208,7 @@ class RecentActivityCalculatorTest {
         assertTrue(items.first { it.kind == ActivityKind.EXPENSE }.isEditable)
         assertTrue(items.first { it.kind == ActivityKind.INCOME }.isEditable)
         assertTrue(items.first { it.kind == ActivityKind.SETTLEMENT }.isEditable)
+        assertTrue(items.first { it.kind == ActivityKind.TRANSFER }.isEditable)
         assertFalse(items.first { it.kind == ActivityKind.SAVING }.isEditable)
     }
 
