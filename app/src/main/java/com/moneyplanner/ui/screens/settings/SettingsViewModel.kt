@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.data.backup.AutoBackupManager
 import com.moneyplanner.data.backup.BackupManager
+import com.moneyplanner.data.backup.ExportResult
+import com.moneyplanner.data.backup.TransactionExporter
 import com.moneyplanner.data.backup.RestoreResult
 import com.moneyplanner.data.prefs.AppSettings
 import com.moneyplanner.data.prefs.SettingsStore
@@ -37,12 +39,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
+import java.time.LocalDate
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsStore: SettingsStore,
     private val profileRepository: ProfileRepository,
     private val backupManager: BackupManager,
+    private val transactionExporter: TransactionExporter,
     private val reminderScheduler: ReminderScheduler,
     private val autoBackupManager: AutoBackupManager,
     private val autoBackupScheduler: AutoBackupScheduler,
@@ -195,6 +199,67 @@ class SettingsViewModel @Inject constructor(
                 .onFailure {
                     _events.value = SettingsEvent.Message("The export could not be created.")
                 }
+        }
+    }
+
+    // ---- Excel export ------------------------------------------------------------
+
+    private val _excelRange = MutableStateFlow(ExcelExportRange())
+    val excelRange: StateFlow<ExcelExportRange> = _excelRange.asStateFlow()
+
+    /** Opens the range picker on the month so far, which is what people usually want. */
+    fun startExcelExport() {
+        val now = today.today()
+        _excelRange.value = ExcelExportRange(
+            isOpen = true,
+            from = now.withDayOfMonth(1),
+            to = now
+        )
+    }
+
+    fun dismissExcelExport() {
+        _excelRange.value = ExcelExportRange()
+    }
+
+    fun updateExcelFrom(value: LocalDate) = _excelRange.update { it.copy(from = value) }
+
+    fun updateExcelTo(value: LocalDate) = _excelRange.update { it.copy(to = value) }
+
+    /** Jumps the range to a whole period, so the common cases take one tap. */
+    fun useExcelPreset(preset: ExcelRangePreset) {
+        val now = today.today()
+        _excelRange.update {
+            when (preset) {
+                ExcelRangePreset.THIS_MONTH -> it.copy(from = now.withDayOfMonth(1), to = now)
+                ExcelRangePreset.LAST_MONTH -> {
+                    val previous = now.minusMonths(1)
+                    it.copy(
+                        from = previous.withDayOfMonth(1),
+                        to = previous.withDayOfMonth(previous.lengthOfMonth())
+                    )
+                }
+                ExcelRangePreset.THIS_YEAR -> it.copy(from = now.withDayOfYear(1), to = now)
+                ExcelRangePreset.EVERYTHING ->
+                    // Wide enough to hold any record the user could have entered, without
+                    // needing a query for the earliest date.
+                    it.copy(from = LocalDate.of(2000, 1, 1), to = now.plusYears(5))
+            }
+        }
+    }
+
+    fun exportExcel() {
+        val range = _excelRange.value
+        _excelRange.value = ExcelExportRange()
+        viewModelScope.launch {
+            _events.value = when (val result = transactionExporter.export(range.from, range.to)) {
+                is ExportResult.Success -> SettingsEvent.ShareFile(
+                    result.file,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                is ExportResult.Empty ->
+                    SettingsEvent.Message("Nothing was recorded between those dates.")
+                is ExportResult.Failure -> SettingsEvent.Message(result.message)
+            }
         }
     }
 
@@ -373,3 +438,19 @@ data class CategoriesState(
     val income: List<Category> = emptyList(),
     val isLoading: Boolean = true
 )
+
+/** The date range for an Excel export, and whether the picker is showing. */
+data class ExcelExportRange(
+    val isOpen: Boolean = false,
+    val from: LocalDate = LocalDate.now(),
+    val to: LocalDate = LocalDate.now()
+) {
+    val isValid: Boolean get() = !to.isBefore(from)
+}
+
+enum class ExcelRangePreset(val label: String) {
+    THIS_MONTH("This month"),
+    LAST_MONTH("Last month"),
+    THIS_YEAR("This year"),
+    EVERYTHING("Everything")
+}

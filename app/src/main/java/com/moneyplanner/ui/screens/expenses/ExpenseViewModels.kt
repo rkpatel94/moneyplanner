@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.core.money.sumOfMoney
 import com.moneyplanner.data.repo.CategoryRepository
+import com.moneyplanner.data.repo.CreditCardRepository
 import com.moneyplanner.data.repo.ExpenseRepository
 import com.moneyplanner.data.repo.LinkedPaymentSync
 import com.moneyplanner.data.repo.FamilyRepository
@@ -16,6 +17,7 @@ import com.moneyplanner.data.repo.VehicleRepository
 import com.moneyplanner.domain.model.Account
 import com.moneyplanner.domain.model.AccountType
 import com.moneyplanner.domain.model.Category
+import com.moneyplanner.domain.model.CreditCard
 import com.moneyplanner.domain.model.Expense
 import com.moneyplanner.domain.model.FamilyMember
 import com.moneyplanner.domain.model.PaymentMethod
@@ -127,6 +129,7 @@ class ExpenseEditorViewModel @Inject constructor(
     vehicleRepository: VehicleRepository,
     familyRepository: FamilyRepository,
     profileRepository: ProfileRepository,
+    creditCardRepository: CreditCardRepository,
     private val today: TodayProvider,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
@@ -143,9 +146,18 @@ class ExpenseEditorViewModel @Inject constructor(
         peopleRepository.people,
         vehicleRepository.all,
         familyRepository.all,
-        profileRepository.accounts
-    ) { categories, people, vehicles, family, accounts ->
-        ExpenseEditorOptions(categories, people, vehicles, family, accounts)
+        profileRepository.accounts,
+        creditCardRepository.all
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        ExpenseEditorOptions(
+            categories = values[0] as List<Category>,
+            people = values[1] as List<Person>,
+            vehicles = values[2] as List<Vehicle>,
+            familyMembers = values[3] as List<FamilyMember>,
+            accounts = values[4] as List<Account>,
+            creditCards = (values[5] as List<CreditCard>).filter { it.isActive }
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -201,12 +213,28 @@ class ExpenseEditorViewModel @Inject constructor(
      * stops, because at that point the user has said something the app should not overrule.
      */
     fun selectPaymentMethod(method: PaymentMethod) = _form.update { form ->
-        if (form.accountTouched) {
-            form.copy(paymentMethod = method)
+        val card = if (method == PaymentMethod.CREDIT_CARD) {
+            // One card is the common case, so choosing "credit card" is already the whole
+            // answer. With several, the user picks.
+            form.creditCardId ?: options.value.creditCards.singleOrNull()?.id
         } else {
-            form.copy(paymentMethod = method, accountId = defaultAccountFor(method))
+            // The card is cleared when the method changes away from it, so an expense
+            // cannot claim to be on a card it was not paid with.
+            null
+        }
+        if (form.accountTouched) {
+            form.copy(paymentMethod = method, creditCardId = card)
+        } else {
+            form.copy(
+                paymentMethod = method,
+                accountId = defaultAccountFor(method),
+                creditCardId = card
+            )
         }
     }
+
+    /** Which card a card purchase went on. */
+    fun selectCreditCard(id: Long?) = _form.update { it.copy(creditCardId = id) }
 
     /**
      * Cash comes out of the cash account, everything else out of the first bank account.
@@ -357,7 +385,8 @@ data class ExpenseEditorOptions(
     val people: List<Person> = emptyList(),
     val vehicles: List<Vehicle> = emptyList(),
     val familyMembers: List<FamilyMember> = emptyList(),
-    val accounts: List<Account> = emptyList()
+    val accounts: List<Account> = emptyList(),
+    val creditCards: List<CreditCard> = emptyList()
 )
 
 /**

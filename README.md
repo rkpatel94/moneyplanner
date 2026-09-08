@@ -327,6 +327,42 @@ total — one moves money between the user's own accounts, the other earmarks it
 purchase is marked "On card", since it is recorded on the day it happens but takes no cash
 until the bill is paid.
 
+### Credit cards
+
+A purchase paid by card asks which card, and the card screen shows what has been charged to
+it since its statement figure was last entered.
+
+The outstanding on a card is deliberately **not** derived, unlike every other balance in
+this app. It is the figure the user copies from their statement, because only the bank knows
+what interest and fees it has added. That makes it the one place where recorded purchases
+cannot simply be added to a balance: a statement of ₹20,000 already contains everything
+charged before it was issued, so summing every card expense on top would charge those
+purchases twice.
+
+`CreditCardCalculator` therefore keeps the two apart and reports both — the statement figure
+the bank gave you, and what has gone on the card since — rather than merging them into a
+single number that would be wrong. Utilisation and the available limit use the total of the
+two, because that is what the card really has on it today.
+
+### Exporting to Excel
+
+**Settings → Export transactions to Excel** writes a real `.xlsx` workbook for a date range,
+with presets for this month, last month, this year and everything. One sheet per kind:
+expenses, income, settlements, transfers, savings and card bills. A kind with nothing in the
+range is left out rather than written as an empty tab.
+
+Amounts are written as numbers and dates as date serials, which is the whole reason for
+preferring a workbook to a CSV: a column of amounts can be summed and a column of dates can
+be sorted and filtered. `₹1,500` as text does neither.
+
+`XlsxWriter` emits the format directly rather than pulling in a library. An `.xlsx` is a zip
+of XML parts, and the subset needed for tabular data is small. Apache POI would have taken
+the release APK from 3.3 MB to roughly 15 MB; writing it costs about 10 KB. There are no
+charts, formulas or images, which is where the format gets genuinely hard.
+
+Verified end to end: the file the app produces on a device opens in a spreadsheet reader
+with amounts as numbers and dates as dates.
+
 ## Architecture
 
 ```
@@ -399,7 +435,7 @@ reconciliation adjustment.
 
 ## Tests
 
-274 JVM unit tests, all passing, covering every calculator plus the voice parser,
+296 JVM unit tests, all passing, covering every calculator plus the voice parser,
 the bank SMS parser, the assistant, budgets, runway, prepayment and insights:
 
 ```bash

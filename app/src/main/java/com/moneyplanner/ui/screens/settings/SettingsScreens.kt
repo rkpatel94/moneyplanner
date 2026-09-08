@@ -58,6 +58,7 @@ import com.moneyplanner.domain.model.CategoryType
 import com.moneyplanner.ui.components.AmountField
 import com.moneyplanner.ui.components.ChipSelector
 import com.moneyplanner.ui.components.ConfirmDialog
+import com.moneyplanner.ui.components.DateField
 import com.moneyplanner.ui.components.LabelledTextField
 import com.moneyplanner.ui.components.PrimaryActionButton
 import com.moneyplanner.ui.components.SectionCard
@@ -73,6 +74,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val excelRange by viewModel.excelRange.collectAsStateWithLifecycle()
     val event by viewModel.events.collectAsStateWithLifecycle()
     val isResetting by viewModel.isResetting.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
@@ -335,6 +337,11 @@ fun SettingsScreen(
                     ) { Text("Create a backup file") }
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(
+                        onClick = viewModel::startExcelExport,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Export transactions to Excel") }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
                         onClick = viewModel::exportCsv,
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("Export expenses as CSV") }
@@ -524,6 +531,75 @@ fun SettingsScreen(
             onDismiss = { showDisableLock = false }
         )
     }
+
+    if (excelRange.isOpen) {
+        ExcelExportDialog(range = excelRange, viewModel = viewModel)
+    }
+}
+
+/**
+ * Choosing what period to export.
+ *
+ * The presets carry the common answers, because "last month" is what somebody filing
+ * something usually wants and picking two dates by hand to express it is work the app can
+ * do for them. The exact dates stay editable underneath for everything else.
+ */
+@Composable
+private fun ExcelExportDialog(
+    range: ExcelExportRange,
+    viewModel: SettingsViewModel
+) {
+    AlertDialog(
+        onDismissRequest = viewModel::dismissExcelExport,
+        shape = MaterialTheme.shapes.large,
+        title = { Text("Export to Excel") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "One sheet per kind: expenses, income, settlements, transfers, " +
+                        "savings and card bills. Amounts come through as numbers and " +
+                        "dates as dates, so you can sum and filter them.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                ChipSelector(
+                    label = "Period",
+                    options = ExcelRangePreset.entries,
+                    selected = null,
+                    onSelect = viewModel::useExcelPreset,
+                    optionLabel = { it.label }
+                )
+
+                DateField(
+                    date = range.from,
+                    onDateChange = viewModel::updateExcelFrom,
+                    label = "From"
+                )
+                DateField(
+                    date = range.to,
+                    onDateChange = viewModel::updateExcelTo,
+                    label = "To"
+                )
+
+                if (!range.isValid) {
+                    Text(
+                        "The end date is before the start date.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = viewModel::exportExcel, enabled = range.isValid) {
+                Text("Export")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = viewModel::dismissExcelExport) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable

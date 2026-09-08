@@ -10,9 +10,11 @@ import com.moneyplanner.data.repo.AnnualExpenseRepository
 import com.moneyplanner.data.repo.BillRepository
 import com.moneyplanner.data.repo.CategoryRepository
 import com.moneyplanner.data.repo.CreditCardRepository
+import com.moneyplanner.data.repo.ExpenseRepository
 import com.moneyplanner.data.repo.TodayProvider
 import com.moneyplanner.data.repo.VehicleRepository
 import com.moneyplanner.domain.calc.RecurrenceCalculator
+import com.moneyplanner.domain.calc.CreditCardCalculator
 import com.moneyplanner.domain.model.AnnualExpense
 import com.moneyplanner.domain.model.BillAmountType
 import com.moneyplanner.domain.model.Category
@@ -42,10 +44,14 @@ import javax.inject.Inject
 @HiltViewModel
 class CardsViewModel @Inject constructor(
     private val cardRepository: CreditCardRepository,
+    expenseRepository: ExpenseRepository,
     private val today: TodayProvider
 ) : ViewModel() {
 
-    val state: StateFlow<CardsState> = cardRepository.all.map { cards ->
+    val state: StateFlow<CardsState> = combine(
+        cardRepository.all,
+        expenseRepository.all
+    ) { cards, expenses ->
         val now = today.today()
         CardsState(
             cards = cards.map { card ->
@@ -57,7 +63,8 @@ class CardsViewModel @Inject constructor(
                         end = null,
                         dayOfMonth = card.dueDayOfMonth,
                         frequency = Frequency.MONTHLY
-                    )
+                    ),
+                    unbilledSpend = CreditCardCalculator.unbilledSpendOn(card, expenses)
                 )
             },
             totalOutstanding = cards.filter { it.isActive }.sumOfMoney { it.currentOutstanding },
@@ -96,7 +103,17 @@ class CardsViewModel @Inject constructor(
     }
 }
 
-data class CardRow(val card: CreditCard, val nextDueDate: LocalDate?)
+data class CardRow(
+    val card: CreditCard,
+    val nextDueDate: LocalDate?,
+    /** Charged to the card since its statement figure was last entered. */
+    val unbilledSpend: Money = Money.ZERO
+) {
+    val hasUnbilled: Boolean get() = unbilledSpend.isPositive
+
+    /** What is really owed today: the statement figure plus what has gone on since. */
+    val projectedOutstanding: Money get() = card.currentOutstanding + unbilledSpend
+}
 
 data class CardsState(
     val cards: List<CardRow> = emptyList(),

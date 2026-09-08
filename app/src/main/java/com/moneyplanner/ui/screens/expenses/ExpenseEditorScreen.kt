@@ -284,10 +284,34 @@ fun ExpenseEditorScreen(
                     )
                 }
                 if (form.paymentMethod == PaymentMethod.CREDIT_CARD) {
+                    if (options.creditCards.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        DropdownField(
+                            value = form.creditCardId,
+                            options = listOf<Long?>(null) + options.creditCards.map { it.id },
+                            onSelect = viewModel::selectCreditCard,
+                            label = "Which card",
+                            optionLabel = { id ->
+                                if (id == null) {
+                                    "Not specified"
+                                } else {
+                                    val card = options.creditCards.first { it.id == id }
+                                    card.lastFourDigits
+                                        ?.let { digits -> "${card.name} ···· $digits" }
+                                        ?: card.name
+                                }
+                            }
+                        )
+                    }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Card spending is added to your card outstanding. It leaves your " +
-                            "bank balance when you pay the card bill.",
+                        if (options.creditCards.isEmpty()) {
+                            "No cards added yet. You can record this now and add the card " +
+                                "later under More, then Credit cards."
+                        } else {
+                            "This does not leave your bank balance today. Cash goes out " +
+                                "when you pay the card bill."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

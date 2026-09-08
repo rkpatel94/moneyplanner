@@ -137,7 +137,7 @@ fun CardsScreen(
                 }
             }
 
-            items(state.cards, key = { it.card.id }) { row ->
+            items(state.cards, key = { "card-${it.card.id}" }) { row ->
                 val card = row.card
                 SectionCard {
                     Row(
@@ -161,21 +161,41 @@ fun CardsScreen(
                     }
 
                     Spacer(Modifier.height(8.dp))
-                    SummaryRow("Outstanding", card.currentOutstanding, emphasise = true)
+                    SummaryRow("On your last statement", card.currentOutstanding, emphasise = true)
                     if (card.minimumDue.isPositive) {
                         SummaryRow("Minimum due", card.minimumDue)
                     }
 
+                    // Kept apart from the statement figure rather than folded into it. The
+                    // statement already contains everything charged before it was issued,
+                    // so adding these on top of that number would count them twice.
+                    if (row.hasUnbilled) {
+                        SummaryRow("Spent since", row.unbilledSpend)
+                        SummaryRow("Owed now", row.projectedOutstanding, emphasise = true)
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Purchases you have recorded on this card since you last " +
+                                "entered its statement figure. Your bank has not billed " +
+                                "them yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
                     if (card.creditLimit.isPositive) {
                         Spacer(Modifier.height(6.dp))
+                        val used = (row.projectedOutstanding.paise.toDouble() /
+                            card.creditLimit.paise).toFloat().coerceIn(0f, 1f)
                         GoalProgressBar(
-                            fraction = card.utilisation,
-                            color = if (card.utilisation > 0.7f) colors.warning else MaterialTheme.colorScheme.primary,
-                            label = "${(card.utilisation * 100).toInt()} percent of the limit used"
+                            fraction = used,
+                            color = if (used > 0.7f) colors.warning else MaterialTheme.colorScheme.primary,
+                            label = "${(used * 100).toInt()} percent of the limit used"
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "${IndianFormat.format(card.availableLimit)} still available",
+                            "${IndianFormat.format(
+                                (card.creditLimit - row.projectedOutstanding).coerceAtLeastZero()
+                            )} still available",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

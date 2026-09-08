@@ -6,6 +6,7 @@ import com.moneyplanner.domain.calc.SettlementCalculator
 import com.moneyplanner.domain.model.Account
 import com.moneyplanner.domain.model.AccountTransfer
 import com.moneyplanner.domain.model.AccountType
+import com.moneyplanner.domain.model.BalanceAdjustment
 import com.moneyplanner.domain.model.FinancialSnapshot
 import com.moneyplanner.domain.model.LedgerDirection
 import com.moneyplanner.domain.model.PaymentMethod
@@ -367,6 +368,48 @@ class AccountBalanceTest {
         assertEquals(
             rupees(-7_500),
             SettlementCalculator.balanceFor(snap.ledgerEntries, snap.settlements)
+        )
+    }
+
+    /**
+     * What the account card shows must add up to the balance printed above it.
+     *
+     * The card lists opening, in, out and any adjustment. Leaving the adjustment off, as
+     * it once did, made a card whose four figures could not be reconciled by eye against
+     * its own total, which is exactly the kind of thing that makes someone stop trusting
+     * the number.
+     */
+    @Test
+    fun `the figures shown on an account card add up to its balance`() {
+        val snap = snapshot(bank(1, "Bank account", 10_000)).copy(
+            adjustments = listOf(
+                BalanceAdjustment(
+                    id = 1,
+                    accountId = 1,
+                    delta = rupees(32_500),
+                    date = date("2026-08-01"),
+                    reason = "Opening reconciliation"
+                )
+            ),
+            incomeTransactions = listOf(
+                incomeTransaction(id = 1, amount = 2_000, date = "2026-08-05").copy(accountId = 1)
+            ),
+            expenses = listOf(
+                expense(id = 1, amount = 5_000, date = "2026-08-10").copy(accountId = 1)
+            )
+        )
+        val row = BalanceCalculator.accountBalances(snap).rows.single()
+
+        assertEquals(rupees(10_000), row.openingBalance)
+        assertEquals(rupees(2_000), row.moneyIn)
+        assertEquals(rupees(5_000), row.moneyOut)
+        assertEquals(rupees(32_500), row.adjustments)
+        assertEquals(rupees(39_500), row.balance)
+
+        // The property itself, independent of the figures above.
+        assertEquals(
+            row.balance,
+            row.openingBalance + row.moneyIn + row.adjustments - row.moneyOut
         )
     }
 }

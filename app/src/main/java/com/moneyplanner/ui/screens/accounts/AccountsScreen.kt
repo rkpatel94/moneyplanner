@@ -292,6 +292,25 @@ private fun AccountCard(
                     color = MoneyTheme.colors.positive
                 )
             }
+            // Only shown when there is one. A correction is an unusual event, and a
+            // permanent "Adjusted ₹0" column would suggest otherwise; but when one exists
+            // it has to be visible, or the four figures on this card cannot be added up
+            // to the balance above them.
+            if (!row.adjustments.isZero) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Adjusted",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    MoneyText(
+                        money = row.adjustments,
+                        style = MaterialTheme.typography.bodyMedium,
+                        colorBySign = true,
+                        showSign = true
+                    )
+                }
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "Out",
