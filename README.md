@@ -277,8 +277,16 @@ what someone needs after typing a figure wrong.
 
 **More → Recent activity** shows the last ten money movements of every kind together —
 expenses, receipts, payments to and from people, transfers between accounts, and money set
-aside into goals. Tapping an expense or a receipt opens its editor; anything can be deleted.
-Receipts are also editable from the income screen, where they are listed.
+aside into goals. Tapping an expense, a receipt or a payment to a person opens its editor;
+anything can be deleted. Receipts are also editable from the income screen, and settlements
+from the person's own screen, where each is already listed. Transfers and goal
+contributions have no editor: each is a single fact with nothing to adjust beyond its
+amount, date and note, so the correction is to delete and re-enter.
+
+Editing a settlement shows the balance **without** that settlement, not the balance as it
+stands. The live balance already has the payment taken off it, so offering that figure
+while the user edits the very payment that produced it would describe a debt reduced twice
+and make every "what would still be owed" line beneath it wrong.
 
 Editing a receipt keeps the month it already settles. A salary due on the 1st and credited
 on the last day of the month before is stamped with the month it was *for*, not the month
@@ -382,7 +390,7 @@ reconciliation adjustment.
 
 ## Tests
 
-269 JVM unit tests, all passing, covering every calculator plus the voice parser,
+272 JVM unit tests, all passing, covering every calculator plus the voice parser,
 the bank SMS parser, the assistant, budgets, runway, prepayment and insights:
 
 ```bash
