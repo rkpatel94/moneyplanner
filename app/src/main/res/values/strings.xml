@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Money Planner</string>
+    <string name="reminder_channel_name">Payment reminders</string>
+    <string name="reminder_channel_description">Reminders for EMIs, bills, credit card dues and money you expect to receive.</string>
+</resources>
