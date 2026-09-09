@@ -191,17 +191,20 @@ India actually use, which is how the parser was caught rejecting genuine SBI deb
 recognised and discarded.
 
 Nothing imports automatically. Every candidate is reviewed, the raw message sits one tap
-away under each row, and anything matching an existing expense on amount and date arrives
+away under each row, and anything that looks like an existing expense arrives
 flagged and unticked — a duplicate is worse than a miss, because a miss is visibly absent
-while a duplicate quietly makes the balance wrong.
+while a duplicate quietly makes the balance wrong. Matching allows a day either side, since
+an alert can arrive after midnight for a purchase made before it, and the same message
+pasted twice is caught within the batch.
 
-`READ_SMS` is requested only when the import screen is opened, never at startup, and only
-senders that look like bank shortcodes are read, so personal conversations are skipped
-entirely. There is also a **paste-one-message** path that needs no permission at all.
+Import is by pasting, and the app asks for no SMS permission at all. Several messages can
+go in at once, separated by blank lines, which is how a batch arrives when someone catches
+up on a week.
 
-> `READ_SMS` is a restricted permission. Play Store grants it almost exclusively to default
-> SMS handler apps, so this feature suits a privately installed build. Removing the
-> permission leaves the paste path working and is a one-line change.
+> Reading the inbox behind `READ_SMS` was removed. Play grants that permission almost
+> exclusively to default SMS handler apps, so it blocked distribution for a feature that
+> works without it, and an app trusted with this much financial detail is stronger for
+> never asking to read your messages.
 
 **Onboarding.** Four steps — name, balance, income, fixed outgoings — every one skippable.
 It exists because a new user previously landed on an empty dashboard showing zero and had
@@ -413,6 +416,13 @@ come from the snapshot rather than a fixed list. Offering "who owes me money" to
 with no people recorded gets the honest answer "nobody", which teaches them the assistant is
 not worth asking.
 
+**The calendar shows the past too.** It was built from the forecast alone, which projects
+forward from the current month, so any earlier month came back empty and the screen said
+"nothing is scheduled" about a month that plainly had spending in it. A day now carries
+what happened, taken from the records, alongside what is expected, taken from the forecast,
+and keeps the two apart. An unpaid item whose day has passed is marked overdue, because
+rent due on the 5th looked identical on the 9th to one due next week.
+
 **Setup ends with a forecast.** Onboarding used to drop the user on a dashboard having asked
 for a balance, a salary and their commitments without ever showing what those imply. The
 last question now leads to a review, with the answers saved first so the figures come from
@@ -490,7 +500,7 @@ reconciliation adjustment.
 
 ## Tests
 
-367 JVM unit tests, all passing, covering every calculator plus the voice parser,
+377 JVM unit tests, all passing, covering every calculator plus the voice parser,
 the bank SMS parser, the assistant, budgets, runway, prepayment and insights:
 
 ```bash
