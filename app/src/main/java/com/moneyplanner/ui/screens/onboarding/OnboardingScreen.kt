@@ -43,6 +43,10 @@ import com.moneyplanner.ui.components.DayOfMonthField
 import com.moneyplanner.ui.components.LabelledTextField
 import com.moneyplanner.ui.components.PrimaryActionButton
 import com.moneyplanner.ui.components.SectionCard
+import com.moneyplanner.ui.components.SummaryRow
+import com.moneyplanner.ui.components.StatusPill
+import com.moneyplanner.ui.components.MoneyText
+import com.moneyplanner.ui.theme.MoneyTheme
 
 /**
  * First run.
@@ -75,7 +79,9 @@ fun OnboardingScreen(
                     .padding(20.dp)
             ) {
                 LinearProgressIndicator(
-                    progress = { (state.step + 1) / OnboardingViewModel.TOTAL_STEPS.toFloat() },
+                    progress = {
+                        (state.step + 1) / (OnboardingViewModel.TOTAL_STEPS + 1).toFloat()
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp),
@@ -86,10 +92,11 @@ fun OnboardingScreen(
 
                 Spacer(Modifier.height(28.dp))
 
-                when (state.step) {
-                    0 -> WelcomeStep(state, viewModel)
-                    1 -> BalanceStep(state, viewModel)
-                    2 -> IncomeStep(state, viewModel)
+                when {
+                    state.isReviewing -> ReviewStep(state)
+                    state.step == 0 -> WelcomeStep(state, viewModel)
+                    state.step == 1 -> BalanceStep(state, viewModel)
+                    state.step == 2 -> IncomeStep(state, viewModel)
                     else -> CommitmentStep(state, viewModel)
                 }
             }
@@ -102,20 +109,135 @@ fun OnboardingScreen(
                         .imePadding()
                         .padding(20.dp)
                 ) {
-                    PrimaryActionButton(
-                        text = if (state.isLastStep) "Start using the app" else "Continue",
-                        onClick = { viewModel.next(onFinished) }
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(
-                        onClick = { viewModel.skipAll(onFinished) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (state.step == 0) "Skip setup" else "Skip the rest")
+                    if (state.isReviewing) {
+                        PrimaryActionButton(
+                            text = "Go to my dashboard",
+                            onClick = { viewModel.complete(onFinished) }
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        // Setup is not marked done until the dashboard button is pressed,
+                        // so going back returns to the questions rather than to a
+                        // half-finished app.
+                        TextButton(
+                            onClick = viewModel::backToQuestions,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Change something")
+                        }
+                    } else {
+                        PrimaryActionButton(
+                            text = if (state.isLastStep) "See what this means" else "Continue",
+                            onClick = { viewModel.next(onFinished) },
+                            enabled = !state.isSaving
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(
+                            onClick = { viewModel.skipAll(onFinished) },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !state.isSaving
+                        ) {
+                            Text(if (state.step == 0) "Skip setup" else "Skip the rest")
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * What the answers add up to, before the dashboard is reached.
+ *
+ * This is the moment the app earns its keep. Everything up to here has been typing; this
+ * is the first time the user sees the thing they installed it for, which is a projection
+ * of what they will actually have rather than a record of what they spent.
+ *
+ * The figures come from the saved records and the same calculators the dashboard uses, so
+ * nothing shown here can disagree with what appears a moment later.
+ */
+@Composable
+private fun ReviewStep(state: OnboardingState) {
+    val review = state.review
+    val colors = MoneyTheme.colors
+
+    Column {
+        Text(
+            "Here is what that means",
+            style = MaterialTheme.typography.headlineSmall
+        )
+        Spacer(Modifier.height(8.dp))
+
+        if (review == null) {
+            Text(
+                "Working it out.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            return@Column
+        }
+
+        Text(
+            "Based on what you have just entered, for " + review.monthLabel + ".",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(Modifier.height(24.dp))
+
+        SectionCard {
+            Text(
+                "Expected at the end of " + review.monthLabel,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(4.dp))
+            MoneyText(
+                money = review.closingBalance,
+                style = MaterialTheme.typography.displaySmall,
+                color = if (review.isComfortable) colors.positive else colors.negative
+            )
+            Spacer(Modifier.height(10.dp))
+            StatusPill(
+                text = if (review.isComfortable) {
+                    "This month works out"
+                } else {
+                    "This month is projected to fall short"
+                },
+                containerColor = if (review.isComfortable) {
+                    colors.positiveContainer
+                } else {
+                    colors.warningContainer
+                },
+                contentColor = if (review.isComfortable) {
+                    colors.positive
+                } else {
+                    colors.onWarningContainer
+                }
+            )
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        SectionCard {
+            SummaryRow("Starting with", review.openingBalance)
+            SummaryRow("Expected in", review.expectedIncome)
+            SummaryRow("Already committed", review.committedOutflow)
+        }
+
+        Spacer(Modifier.height(12.dp))
+
+        Text(
+            if (review.itemsAhead > 0) {
+                review.itemsAhead.toString() + " dated payments are already in your " +
+                    "calendar. Everything here is editable, and the projection sharpens " +
+                    "as you record what you actually spend."
+            } else {
+                "Add a few expenses and the projection will start using your own spending " +
+                    "rather than only the commitments you named."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

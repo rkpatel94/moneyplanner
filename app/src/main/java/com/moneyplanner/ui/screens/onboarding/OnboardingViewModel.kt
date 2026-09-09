@@ -3,6 +3,7 @@ package com.moneyplanner.ui.screens.onboarding
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moneyplanner.core.money.Money
+import com.moneyplanner.core.time.DateUtil
 import com.moneyplanner.data.prefs.SettingsStore
 import com.moneyplanner.data.repo.BillRepository
 import com.moneyplanner.data.repo.CategoryRepository
@@ -12,6 +13,7 @@ import com.moneyplanner.data.repo.ProfileRepository
 import com.moneyplanner.data.repo.SnapshotRepository
 import com.moneyplanner.data.repo.TodayProvider
 import com.moneyplanner.domain.calc.BalanceCalculator
+import com.moneyplanner.domain.calc.ForecastCalculator
 import com.moneyplanner.domain.model.BillAmountType
 import com.moneyplanner.domain.model.Emi
 import com.moneyplanner.domain.model.Frequency
@@ -53,7 +55,11 @@ class OnboardingViewModel @Inject constructor(
 ) : ViewModel() {
 
     companion object {
+        /** The steps that ask for something. The review after them is not one of these. */
         const val TOTAL_STEPS = 4
+
+        /** Shown once the answers are saved, so the figures on it are the real ones. */
+        const val REVIEW_STEP = TOTAL_STEPS
     }
 
     private val _state = MutableStateFlow(OnboardingState())
@@ -72,15 +78,75 @@ class OnboardingViewModel @Inject constructor(
             _state.update { it.copy(step = it.step + 1) }
             return
         }
-        finish(onFinished)
+        // The last question leads to the review rather than straight to the dashboard.
+        saveAndReview()
     }
 
-    /** Saves whatever was entered and marks setup done. */
-    fun skipAll(onFinished: () -> Unit) = finish(onFinished)
+    /**
+     * Skipping still saves whatever was typed, and still shows the review.
+     *
+     * Somebody who skips from step two has usually given a balance and a salary, which is
+     * enough for the forecast to say something useful. Dropping them onto the dashboard
+     * instead would hide the one thing that makes the app worth keeping.
+     */
+    fun skipAll(onFinished: () -> Unit) = saveAndReview()
 
-    private fun finish(onFinished: () -> Unit) {
-        val form = _state.value
+    /**
+     * Writes the answers, then works out what they actually imply.
+     *
+     * Saving first is what makes the review honest: the figures come from the same
+     * snapshot and the same calculators the dashboard will use a moment later, rather
+     * than from a parallel estimate that could disagree with it.
+     *
+     * Setup is not marked complete here. The user is still inside it until they have seen
+     * the review and pressed on, so backing out returns them to the questions rather than
+     * to a half-finished dashboard.
+     */
+    private fun saveAndReview() {
+        if (_state.value.isSaving) return
+        _state.update { it.copy(isSaving = true) }
+
         viewModelScope.launch {
+            persist()
+
+            val snapshot = snapshotRepository.snapshot.first()
+            val month = withContext(computation) {
+                ForecastCalculator.forecastMonth(snapshot, snapshot.currentMonth)
+            }
+
+            _state.update {
+                it.copy(
+                    step = REVIEW_STEP,
+                    isSaving = false,
+                    review = OnboardingReview(
+                        openingBalance = month.openingBalance,
+                        expectedIncome = month.totalInflow,
+                        committedOutflow = month.committedOutflow,
+                        closingBalance = month.closingBalance,
+                        monthLabel = DateUtil.formatMonth(month.month),
+                        itemsAhead = month.items.size
+                    )
+                )
+            }
+        }
+    }
+
+    /** Marks setup done and lets the user into the app. */
+    fun complete(onFinished: () -> Unit) {
+        viewModelScope.launch {
+            settingsStore.setOnboarded(true)
+            onFinished()
+        }
+    }
+
+    /** Back from the review to the questions, without losing what was entered. */
+    fun backToQuestions() {
+        _state.update { it.copy(step = TOTAL_STEPS - 1, review = null) }
+    }
+
+    private suspend fun persist() {
+        val form = _state.value
+        run {
             profileRepository.saveProfile(
                 profileRepository.profile.first().copy(
                     displayName = form.name.trim(),
@@ -174,14 +240,26 @@ class OnboardingViewModel @Inject constructor(
                 )
             }
 
-            settingsStore.setOnboarded(true)
-            onFinished()
         }
     }
 }
 
+/** What the answers add up to, computed from the saved records rather than estimated. */
+data class OnboardingReview(
+    val openingBalance: Money,
+    val expectedIncome: Money,
+    val committedOutflow: Money,
+    val closingBalance: Money,
+    val monthLabel: String,
+    val itemsAhead: Int
+) {
+    val isComfortable: Boolean get() = !closingBalance.isNegative
+}
+
 data class OnboardingState(
     val step: Int = 0,
+    val isSaving: Boolean = false,
+    val review: OnboardingReview? = null,
     val name: String = "",
     val balanceText: String = "",
     val salaryText: String = "",
@@ -190,6 +268,7 @@ data class OnboardingState(
     val emiText: String = ""
 ) {
     val isLastStep: Boolean get() = step >= OnboardingViewModel.TOTAL_STEPS - 1
+    val isReviewing: Boolean get() = step >= OnboardingViewModel.REVIEW_STEP
 
     private val salary: Money get() = Money.parseOrNull(salaryText) ?: Money.ZERO
     private val rent: Money get() = Money.parseOrNull(rentText) ?: Money.ZERO
