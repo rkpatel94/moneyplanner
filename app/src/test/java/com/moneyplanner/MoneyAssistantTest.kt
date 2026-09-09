@@ -147,4 +147,82 @@ class MoneyAssistantTest {
             )
         }
     }
+
+    // ---- Intents added after the first release --------------------------------------
+
+    @Test
+    fun `it answers when the money runs out`() {
+        val answer = MoneyAssistant.answer("when will I run out of money?", snapshot())
+        assertTrue(answer.isUnderstood)
+    }
+
+    @Test
+    fun `it answers where the money goes`() {
+        val answer = MoneyAssistant.answer("where does my money go?", snapshot())
+        assertTrue(answer.isUnderstood)
+    }
+
+    @Test
+    fun `it answers about the credit card rather than treating it as a bill`() {
+        // "card due" contains "due", which the bills matcher would otherwise swallow.
+        val answer = MoneyAssistant.answer("what is my card due?", snapshot())
+        assertTrue(answer.isUnderstood)
+        assertTrue(answer.action == AssistantAction.OPEN_PLANS)
+    }
+
+    @Test
+    fun `it answers about accounts rather than the overall balance`() {
+        // "how much cash" contains neither "balance" nor "have", but means per account.
+        val answer = MoneyAssistant.answer("how much cash do I have?", snapshot())
+        assertTrue(answer.isUnderstood)
+    }
+
+    @Test
+    fun `it answers about budgets`() {
+        val answer = MoneyAssistant.answer("am I within budget?", snapshot())
+        assertTrue(answer.isUnderstood)
+    }
+
+    @Test
+    fun `it answers about the overall position`() {
+        val answer = MoneyAssistant.answer("what is my net worth?", snapshot())
+        assertTrue(answer.isUnderstood)
+    }
+
+    // ---- Suggestions ---------------------------------------------------------------
+
+    @Test
+    fun `every suggestion offered for a snapshot can be answered from it`() {
+        // The property that matters: an offered question that returns "I am not sure"
+        // teaches the user the assistant is not worth asking.
+        val snapshots = listOf(
+            FinancialSnapshot(today = date("2026-09-15")),
+            snapshot()
+        )
+        snapshots.forEach { snap ->
+            MoneyAssistant.suggestionsFor(snap).forEach { suggestion ->
+                assertTrue(
+                    "offered \"" + suggestion + "\" so it must be answerable",
+                    MoneyAssistant.answer(suggestion, snap).isUnderstood
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `an empty install is still offered something to ask`() {
+        val suggestions = MoneyAssistant.suggestionsFor(FinancialSnapshot(today = date("2026-09-15")))
+
+        assertTrue(suggestions.isNotEmpty())
+        // Nothing recorded, so nothing about people, cards or budgets is offered.
+        assertFalse(suggestions.any { it.contains("owes me") })
+        assertFalse(suggestions.any { it.contains("credit card") })
+    }
+
+    @Test
+    fun `a question about people is only offered once there are people`() {
+        val withPeople = MoneyAssistant.suggestionsFor(snapshot(), limit = 20)
+
+        assertTrue(withPeople.any { it.contains("owes me") })
+    }
 }

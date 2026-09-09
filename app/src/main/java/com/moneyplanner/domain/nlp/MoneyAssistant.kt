@@ -12,6 +12,9 @@ import com.moneyplanner.domain.calc.ForecastCalculator
 import com.moneyplanner.domain.calc.SavingsCalculator
 import com.moneyplanner.domain.calc.SettlementCalculator
 import com.moneyplanner.domain.calc.SpendingAnalyzer
+import com.moneyplanner.domain.calc.RunwayCalculator
+import com.moneyplanner.domain.calc.BudgetCalculator
+import com.moneyplanner.domain.calc.CreditCardCalculator
 import com.moneyplanner.domain.model.AffordabilityVerdict
 import com.moneyplanner.domain.model.FinancialSnapshot
 import java.time.YearMonth
@@ -39,6 +42,14 @@ object MoneyAssistant {
         return when {
             asksAffordability(text) -> answerAffordability(text, snapshot)
             asksCategorySpend(text) -> answerCategorySpend(text, snapshot)
+            // Before the bill and balance matchers, both of which would otherwise
+            // swallow "card due" and "cash in hand".
+            asksRunway(text) -> answerRunway(snapshot)
+            asksBiggestExpense(text) -> answerBiggestExpense(snapshot)
+            asksNetWorth(text) -> answerNetWorth(snapshot)
+            asksBudget(text) -> answerBudget(snapshot)
+            asksCard(text) -> answerCard(snapshot)
+            asksAccounts(text) -> answerAccounts(snapshot)
             asksWhoOwesMe(text) -> answerWhoOwesMe(snapshot)
             asksWhomDoIOwe(text) -> answerWhomDoIOwe(snapshot)
             asksEmi(text) -> answerEmi(snapshot)
@@ -95,6 +106,25 @@ object MoneyAssistant {
 
     private fun asksCategorySpend(t: String) =
         (t.contains("spend") || t.contains("spent")) && t.contains(" on ")
+
+    private fun asksRunway(t: String) =
+        t.hasAny("run out", "run dry", "last me", "how long will", "last until", "runway")
+
+    private fun asksBudget(t: String) =
+        t.hasAny("budget", "over limit", "within limit", "on track")
+
+    private fun asksCard(t: String) =
+        t.hasAny("credit card", "card bill", "card due", "card outstanding", "my card")
+
+    private fun asksNetWorth(t: String) =
+        t.hasAny("net worth", "worth", "net position", "overall position", "everything i owe")
+
+    private fun asksBiggestExpense(t: String) =
+        t.hasAny("biggest", "largest", "most on", "top expense", "where does my money go")
+
+    private fun asksAccounts(t: String) =
+        t.hasAny("which account", "in my bank", "cash in hand", "per account",
+            "account balance", "how much cash")
 
     // ---- Answers ------------------------------------------------------------------
 
@@ -405,6 +435,162 @@ object MoneyAssistant {
         )
     }
 
+    /** When the money runs short, walked day by day rather than only at month ends. */
+    private fun answerRunway(snapshot: FinancialSnapshot): AssistantAnswer {
+        val projection = RunwayCalculator.project(snapshot)
+        val headline = projection.headline(snapshot.today)
+
+        if (headline == null) {
+            return AssistantAnswer(
+                headline = "Your money holds up",
+                detail = "Across the next three months your balance never runs out or " +
+                    "dips below your comfort floor, going on what you have recorded.",
+                action = AssistantAction.OPEN_FORECAST,
+                tone = AnswerTone.POSITIVE
+            )
+        }
+
+        val lowest = projection.lowestPoint
+        return AssistantAnswer(
+            headline = headline,
+            detail = lowest?.let {
+                "The lowest point is " + IndianFormat.format(it.closingBalance) + " on " +
+                    DateUtil.formatDayMonth(it.date) + "."
+            } ?: "Based on the payments you have scheduled.",
+            action = AssistantAction.OPEN_FORECAST,
+            tone = if (projection.hasShortfall) AnswerTone.NEGATIVE else AnswerTone.CAUTION
+        )
+    }
+
+    private fun answerBudget(snapshot: FinancialSnapshot): AssistantAnswer {
+        val statuses = BudgetCalculator.allStatuses(snapshot)
+        if (statuses.isEmpty()) {
+            return AssistantAnswer(
+                headline = "You have not set any budgets",
+                detail = "A budget is a monthly limit, either on one category or on " +
+                    "everything. It tells you when you are overspending, which the " +
+                    "forecast does not.",
+                action = AssistantAction.OPEN_REPORTS
+            )
+        }
+
+        val over = statuses.filter { it.isOver }
+        val heading = statuses.first()
+
+        return if (over.isEmpty()) {
+            AssistantAnswer(
+                headline = "You are inside every budget",
+                detail = heading.categoryName + ": " + heading.summary() + ".",
+                action = AssistantAction.OPEN_REPORTS,
+                tone = AnswerTone.POSITIVE
+            )
+        } else {
+            AssistantAnswer(
+                headline = if (over.size == 1) {
+                    over.first().categoryName + " is over budget"
+                } else {
+                    over.size.toString() + " budgets are over"
+                },
+                detail = over.joinToString(". ") { it.categoryName + ": " + it.summary() } + ".",
+                action = AssistantAction.OPEN_REPORTS,
+                tone = AnswerTone.CAUTION
+            )
+        }
+    }
+
+    private fun answerCard(snapshot: FinancialSnapshot): AssistantAnswer {
+        val statuses = CreditCardCalculator.allStatuses(snapshot)
+            .filter { it.card.isActive }
+
+        if (statuses.isEmpty()) {
+            return AssistantAnswer(
+                headline = "No credit cards recorded",
+                detail = "Add a card and its statement figure, and card dues will appear " +
+                    "in your forecast alongside everything else.",
+                action = AssistantAction.OPEN_PLANS
+            )
+        }
+
+        val owed = statuses.fold(Money.ZERO) { total, it -> total + it.projectedOutstanding }
+        val next = statuses.minByOrNull { it.cycle.dueOn }
+
+        return AssistantAnswer(
+            headline = IndianFormat.format(owed) + " on your cards",
+            detail = next?.let {
+                it.card.name + " is due " +
+                    DateUtil.relativeDayLabel(it.cycle.dueOn, snapshot.today).lowercase() +
+                    "." + if (it.hasUnbilled) {
+                        " That includes " + IndianFormat.format(it.unbilledSpend) +
+                            " spent since your last statement."
+                    } else {
+                        ""
+                    }
+            } ?: "Across your active cards.",
+            action = AssistantAction.OPEN_PLANS,
+            tone = if (statuses.any { it.isOverLimit }) AnswerTone.CAUTION else AnswerTone.NEUTRAL
+        )
+    }
+
+    private fun answerNetWorth(snapshot: FinancialSnapshot): AssistantAnswer {
+        val position = BalanceCalculator.netPosition(snapshot)
+        return AssistantAnswer(
+            headline = IndianFormat.format(position.net) + " overall",
+            detail = IndianFormat.format(position.available) + " available, " +
+                IndianFormat.format(position.receivable) + " owed to you, against " +
+                IndianFormat.format(position.payable) + " you owe, " +
+                IndianFormat.format(position.loanOutstanding) + " of loans and " +
+                IndianFormat.format(position.creditCardOutstanding) + " on cards.",
+            action = AssistantAction.OPEN_REPORTS,
+            tone = if (position.net.isNegative) AnswerTone.CAUTION else AnswerTone.NEUTRAL
+        )
+    }
+
+    private fun answerBiggestExpense(snapshot: FinancialSnapshot): AssistantAnswer {
+        val month = snapshot.currentMonth
+        val breakdown = SpendingAnalyzer.categoryBreakdown(snapshot, month)
+        val top = breakdown.firstOrNull()
+            ?: return AssistantAnswer(
+                headline = "Nothing recorded this month yet",
+                detail = "Once you have entered some spending I can tell you where most " +
+                    "of it went.",
+                action = AssistantAction.OPEN_REPORTS
+            )
+
+        return AssistantAnswer(
+            headline = top.categoryName + " at " + IndianFormat.format(top.amount),
+            detail = "Your largest category in " + DateUtil.formatMonth(month) + ", " +
+                (top.shareOfTotal * 100).toInt().toString() + "% of what you spent. " +
+                (breakdown.getOrNull(1)?.let {
+                    "Then " + it.categoryName + " at " + IndianFormat.format(it.amount) + "."
+                } ?: ""),
+            action = AssistantAction.OPEN_REPORTS
+        )
+    }
+
+    private fun answerAccounts(snapshot: FinancialSnapshot): AssistantAnswer {
+        val balances = BalanceCalculator.accountBalances(snapshot)
+        if (balances.rows.isEmpty()) {
+            return AssistantAnswer(
+                headline = IndianFormat.format(BalanceCalculator.currentBalance(snapshot)),
+                detail = "You have not set up separate accounts yet.",
+                action = AssistantAction.OPEN_DASHBOARD
+            )
+        }
+
+        return AssistantAnswer(
+            headline = IndianFormat.format(balances.total) + " across your accounts",
+            detail = balances.rows.joinToString(", ") {
+                it.account.name + ": " + IndianFormat.format(it.balance)
+            } + "." + if (balances.hasUnassigned) {
+                " " + IndianFormat.format(balances.unassigned) +
+                    " is not linked to any account."
+            } else {
+                ""
+            },
+            action = AssistantAction.OPEN_DASHBOARD
+        )
+    }
+
     private fun unknown(snapshot: FinancialSnapshot): AssistantAnswer = AssistantAnswer(
         headline = "I am not sure about that one",
         detail = "I can answer things like: how much do I have, how much can I safely " +
@@ -432,7 +618,57 @@ object MoneyAssistant {
         return Money(Math.round(total * 100)).takeIf { it.isPositive }
     }
 
-    /** The questions offered as starting points when the assistant is opened. */
+    /**
+     * The questions offered as starting points, chosen from what the user actually has.
+     *
+     * A fixed list offers "who owes me money" to somebody with no people recorded, and the
+     * honest answer to that is "nobody", which teaches them the assistant is not worth
+     * asking. Only questions the data can answer with something are offered, and the
+     * generic ones fill the rest so the list is never empty on a new install.
+     */
+    fun suggestionsFor(snapshot: FinancialSnapshot, limit: Int = 6): List<String> {
+        val specific = buildList {
+            if (snapshot.expenses.isNotEmpty()) {
+                add("Where does my money go?")
+            }
+            if (snapshot.emis.any { it.isActive }) {
+                add("What are my EMIs?")
+            }
+            if (snapshot.creditCards.any { it.isActive }) {
+                add("What is on my credit card?")
+            }
+            if (snapshot.budgets.any { it.isActive }) {
+                add("Am I within budget?")
+            }
+            if (snapshot.ledgerEntries.isNotEmpty()) {
+                add("Who owes me money?")
+            }
+            if (snapshot.goals.isNotEmpty()) {
+                add("How much have I saved?")
+            }
+            if (snapshot.accounts.size > 1) {
+                add("How much cash do I have?")
+            }
+            if (snapshot.bills.any { it.isActive } || snapshot.emis.any { it.isActive }) {
+                add("What is due this month?")
+            }
+            if (snapshot.incomeSources.isNotEmpty() || snapshot.expenses.isNotEmpty()) {
+                add("When will I run out of money?")
+            }
+        }
+
+        // Always answerable, whatever is recorded, so the list is never empty.
+        val universal = listOf(
+            "How much do I have?",
+            "How much can I safely spend?",
+            "What will I have next month?",
+            "Can I afford 25000?"
+        )
+
+        return (specific + universal).distinct().take(limit)
+    }
+
+    /** The fallback list, for callers with no snapshot to hand. */
     val SUGGESTIONS = listOf(
         "How much do I have?",
         "How much can I safely spend?",

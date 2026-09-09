@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -40,6 +42,22 @@ class AssistantViewModel @Inject constructor(
 
     private val _input = MutableStateFlow("")
     val input: StateFlow<String> = _input.asStateFlow()
+
+    /**
+     * Starting questions chosen from what the user actually has recorded.
+     *
+     * A fixed list offers "who owes me money" to somebody with no people recorded, and
+     * the honest answer to that is "nobody" — which teaches them the assistant is not
+     * worth asking.
+     */
+    val suggestions: StateFlow<List<String>> = snapshotRepository.snapshot
+        .map { MoneyAssistant.suggestionsFor(it) }
+        .flowOn(computation)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = MoneyAssistant.SUGGESTIONS.take(4)
+        )
 
     fun updateInput(value: String) {
         _input.value = value

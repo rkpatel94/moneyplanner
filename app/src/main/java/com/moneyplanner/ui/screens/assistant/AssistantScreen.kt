@@ -74,6 +74,7 @@ fun AssistantScreen(
     viewModel: AssistantViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val suggestions by viewModel.suggestions.collectAsStateWithLifecycle()
     val input by viewModel.input.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val context = LocalContext.current
@@ -238,7 +239,7 @@ fun AssistantScreen(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    MoneyAssistant.SUGGESTIONS.take(4).forEach { suggestion ->
+                    suggestions.take(3).forEach { suggestion ->
                         AssistChip(
                             onClick = { viewModel.ask(suggestion) },
                             label = { Text(suggestion) },
@@ -253,7 +254,7 @@ fun AssistantScreen(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    MoneyAssistant.SUGGESTIONS.drop(4).forEach { suggestion ->
+                    suggestions.drop(3).forEach { suggestion ->
                         AssistChip(
                             onClick = { viewModel.ask(suggestion) },
                             label = { Text(suggestion) },
