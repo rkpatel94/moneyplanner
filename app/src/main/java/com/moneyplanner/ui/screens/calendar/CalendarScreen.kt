@@ -50,10 +50,13 @@ import com.moneyplanner.core.money.IndianFormat
 import com.moneyplanner.core.time.DateUtil
 import com.moneyplanner.data.repo.SnapshotRepository
 import com.moneyplanner.domain.calc.ForecastCalculator
+import com.moneyplanner.domain.calc.CalendarCalculator
+import com.moneyplanner.domain.calc.CalendarEntry
 import com.moneyplanner.domain.calc.ForecastItem
 import com.moneyplanner.ui.components.LoadingState
 import com.moneyplanner.ui.components.MoneyText
 import com.moneyplanner.ui.components.SectionCard
+import com.moneyplanner.ui.components.StatusPill
 import com.moneyplanner.ui.screens.expenses.MonthSelector
 import com.moneyplanner.ui.theme.MoneyTheme
 import com.moneyplanner.di.DefaultDispatcher
@@ -77,20 +80,24 @@ class CalendarViewModel @Inject constructor(
     @DefaultDispatcher private val computation: CoroutineDispatcher
 ) : ViewModel() {
 
-    private val selectedMonth = MutableStateFlow(YearMonth.now())
+    /**
+     * Null until the user picks one, so the month shown follows the snapshot's date.
+     *
+     * Reading the system clock here would fix the calendar to whichever month it was
+     * opened in and leave it there across midnight, which is exactly what the snapshot
+     * already solves for every other screen.
+     */
+    private val selectedMonth = MutableStateFlow<YearMonth?>(null)
 
     val state: StateFlow<CalendarState> = combine(
         snapshotRepository.snapshot,
         selectedMonth
-    ) { snapshot, month ->
-        val monthsAhead = java.time.temporal.ChronoUnit.MONTHS
-            .between(snapshot.currentMonth, month).toInt()
-        val forecast = ForecastCalculator.forecast(snapshot, (monthsAhead + 1).coerceAtLeast(1))
-        val target = forecast.firstOrNull { it.month == month }
+    ) { snapshot, chosen ->
+        val month = chosen ?: snapshot.currentMonth
 
         CalendarState(
             month = month,
-            itemsByDate = target?.items.orEmpty().groupBy { it.date },
+            entriesByDate = CalendarCalculator.byDate(snapshot, month),
             today = snapshot.today,
             isPastMonth = month.isBefore(snapshot.currentMonth),
             isLoading = false
@@ -103,17 +110,19 @@ class CalendarViewModel @Inject constructor(
         initialValue = CalendarState()
     )
 
-    fun previousMonth() = selectedMonth.update { it.minusMonths(1) }
-    fun nextMonth() = selectedMonth.update { it.plusMonths(1) }
+    fun previousMonth() = selectedMonth.update { (it ?: state.value.month).minusMonths(1) }
+    fun nextMonth() = selectedMonth.update { (it ?: state.value.month).plusMonths(1) }
 }
 
 data class CalendarState(
     val month: YearMonth = YearMonth.now(),
-    val itemsByDate: Map<LocalDate, List<ForecastItem>> = emptyMap(),
+    val entriesByDate: Map<LocalDate, List<CalendarEntry>> = emptyMap(),
     val today: LocalDate = LocalDate.now(),
     val isPastMonth: Boolean = false,
     val isLoading: Boolean = true
-)
+) {
+    val isEmpty: Boolean get() = entriesByDate.isEmpty()
+}
 
 /**
  * A month at a glance.
@@ -177,7 +186,7 @@ fun CalendarScreen(
                         month = state.month,
                         today = state.today,
                         selected = selectedDate,
-                        itemsByDate = state.itemsByDate,
+                        entriesByDate = state.entriesByDate,
                         onSelect = { date ->
                             selectedDate = if (selectedDate == date) null else date
                         }
@@ -186,39 +195,40 @@ fun CalendarScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         LegendDot("Money in", colors.positive)
                         LegendDot("Money out", colors.negative)
+                        LegendDot("Overdue", colors.warning)
                     }
                 }
             }
 
             val chosen = selectedDate
-            val itemsForDay = chosen?.let { state.itemsByDate[it] }.orEmpty()
+            val entriesForDay = chosen?.let { state.entriesByDate[it] }.orEmpty()
 
             if (chosen != null) {
                 item {
                     SectionCard(title = DateUtil.formatWeekdayDate(chosen)) {
-                        if (itemsForDay.isEmpty()) {
+                        if (entriesForDay.isEmpty()) {
                             Text(
-                                "Nothing scheduled on this day.",
+                                "Nothing on this day.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         } else {
-                            itemsForDay.forEach { item -> ForecastItemRow(item) }
+                            entriesForDay.forEach { entry -> CalendarEntryRow(entry) }
                         }
                     }
                 }
-            } else if (state.itemsByDate.isNotEmpty()) {
+            } else if (!state.isEmpty) {
                 item {
                     SectionCard(title = "Everything this month") {
-                        state.itemsByDate.keys.sorted().forEach { date ->
+                        state.entriesByDate.keys.sorted().forEach { date ->
                             Text(
                                 DateUtil.formatWeekdayDate(date),
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
                             )
-                            state.itemsByDate.getValue(date).forEach { item ->
-                                ForecastItemRow(item)
+                            state.entriesByDate.getValue(date).forEach { entry ->
+                                CalendarEntryRow(entry)
                             }
                         }
                     }
@@ -227,7 +237,16 @@ fun CalendarScreen(
                 item {
                     SectionCard {
                         Text(
-                            "Nothing is scheduled in ${DateUtil.formatMonth(state.month)}.",
+                            // A finished month can only ever hold what happened, so
+                            // saying nothing is "scheduled" in it would be answering a
+                            // question the user did not ask.
+                            if (state.isPastMonth) {
+                                "Nothing was recorded in " +
+                                    DateUtil.formatMonth(state.month) + "."
+                            } else {
+                                "Nothing is scheduled in " +
+                                    DateUtil.formatMonth(state.month) + "."
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -258,7 +277,7 @@ private fun MonthGrid(
     month: YearMonth,
     today: LocalDate,
     selected: LocalDate?,
-    itemsByDate: Map<LocalDate, List<ForecastItem>>,
+    entriesByDate: Map<LocalDate, List<CalendarEntry>>,
     onSelect: (LocalDate) -> Unit
 ) {
     val firstDay = month.atDay(1)
@@ -287,7 +306,7 @@ private fun MonthGrid(
                                 date = date,
                                 isToday = date == today,
                                 isSelected = date == selected,
-                                items = itemsByDate[date].orEmpty(),
+                                entries = entriesByDate[date].orEmpty(),
                                 onClick = { onSelect(date) }
                             )
                         }
@@ -303,12 +322,15 @@ private fun DayCell(
     date: LocalDate,
     isToday: Boolean,
     isSelected: Boolean,
-    items: List<ForecastItem>,
+    entries: List<CalendarEntry>,
     onClick: () -> Unit
 ) {
     val colors = MoneyTheme.colors
-    val hasInflow = items.any { it.isInflow }
-    val hasOutflow = items.any { !it.isInflow }
+    val hasInflow = entries.any { it.isInflow }
+    // Neutral movements carry no dot: a transfer changes no total, so marking it as
+    // money out would say something about the month that is not true.
+    val hasOutflow = entries.any { it.isOutflow }
+    val hasOverdue = entries.any { it.isOverdue }
 
     val background = when {
         isSelected -> MaterialTheme.colorScheme.primaryContainer
@@ -316,13 +338,16 @@ private fun DayCell(
         else -> Color.Transparent
     }
 
+    // Read aloud, so it has to say what a sighted user gets from the dots: whether the
+    // day holds anything, and whether any of it is late.
     val description = buildString {
         append(DateUtil.formatDate(date))
-        if (items.isEmpty()) {
-            append(", nothing scheduled")
+        if (entries.isEmpty()) {
+            append(", nothing")
         } else {
-            append(", ${items.size} scheduled ")
-            append(if (items.size == 1) "payment" else "payments")
+            append(", ${entries.size} ")
+            append(if (entries.size == 1) "entry" else "entries")
+            if (hasOverdue) append(", something is overdue")
         }
     }
 
@@ -354,8 +379,12 @@ private fun DayCell(
             )
             Spacer(Modifier.height(2.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                // Three independent markers, matching the legend exactly. Overdue is its
+                // own dot rather than a recolouring of the outflow one, because a salary
+                // that has not arrived is overdue too and would otherwise stay green.
                 if (hasInflow) Dot(colors.positive)
                 if (hasOutflow) Dot(colors.negative)
+                if (hasOverdue) Dot(colors.warning)
             }
         }
     }
@@ -384,7 +413,9 @@ private fun LegendDot(label: String, color: Color) {
 }
 
 @Composable
-private fun ForecastItemRow(item: ForecastItem) {
+private fun CalendarEntryRow(entry: CalendarEntry) {
+    val colors = MoneyTheme.colors
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -392,17 +423,34 @@ private fun ForecastItemRow(item: ForecastItem) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(item.title, style = MaterialTheme.typography.bodyLarge)
+            Text(entry.title, style = MaterialTheme.typography.bodyLarge)
             Text(
-                item.subtitle,
+                entry.subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            // A payment that has left the account and one that is merely due look the
+            // same on a grid, and treating them alike is how somebody concludes a bill
+            // is paid when it is not.
+            if (entry.isOverdue) {
+                Spacer(Modifier.height(4.dp))
+                StatusPill(
+                    text = "Was due, still not recorded",
+                    containerColor = colors.warningContainer,
+                    contentColor = colors.onWarningContainer
+                )
+            } else if (entry.isScheduled) {
+                Spacer(Modifier.height(4.dp))
+                StatusPill(text = "Expected")
+            }
         }
         MoneyText(
-            money = item.signedAmount,
-            colorBySign = true,
-            showSign = true
+            money = entry.amount,
+            color = when {
+                entry.isInflow -> colors.positive
+                entry.isOutflow -> colors.negative
+                else -> colors.neutral
+            }
         )
     }
 }

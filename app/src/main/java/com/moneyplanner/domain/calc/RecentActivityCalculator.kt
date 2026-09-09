@@ -6,6 +6,7 @@ import com.moneyplanner.domain.model.ExpenseLinkType
 import com.moneyplanner.domain.model.FinancialSnapshot
 import com.moneyplanner.domain.model.SettlementDirection
 import java.time.LocalDate
+import java.time.YearMonth
 
 /**
  * The last few things that actually happened, whatever kind of record they were.
@@ -31,13 +32,7 @@ object RecentActivityCalculator {
      * arrives would make a mistyped entry impossible to find.
      */
     fun recent(snapshot: FinancialSnapshot, limit: Int = DEFAULT_LIMIT): List<ActivityItem> =
-        buildList {
-            addAll(expenses(snapshot))
-            addAll(income(snapshot))
-            addAll(settlements(snapshot))
-            addAll(transfers(snapshot))
-            addAll(savings(snapshot))
-        }
+        allMovements(snapshot)
             // Ties are broken by kind and then by id so the order never shuffles between
             // reads. Several records entered in one sitting share a date, and a list that
             // reorders itself under the user is a list they stop trusting.
@@ -47,6 +42,25 @@ object RecentActivityCalculator {
                     .thenByDescending { it.recordId }
             )
             .take(limit.coerceAtLeast(0))
+
+    /** Every recorded movement, unsorted. */
+    fun allMovements(snapshot: FinancialSnapshot): List<ActivityItem> = buildList {
+        addAll(expenses(snapshot))
+        addAll(income(snapshot))
+        addAll(settlements(snapshot))
+        addAll(transfers(snapshot))
+        addAll(savings(snapshot))
+    }
+
+    /** Everything that actually happened in one month, oldest first. */
+    fun movementsIn(snapshot: FinancialSnapshot, month: YearMonth): List<ActivityItem> =
+        allMovements(snapshot)
+            .filter { YearMonth.from(it.date) == month }
+            .sortedWith(
+                compareBy<ActivityItem> { it.date }
+                    .thenBy { it.kind.ordinal }
+                    .thenBy { it.recordId }
+            )
 
     private fun expenses(snapshot: FinancialSnapshot): List<ActivityItem> {
         val categories = snapshot.categoriesById

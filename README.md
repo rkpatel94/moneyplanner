@@ -35,6 +35,10 @@ backup rules exclude every domain, so financial records are not swept into a Goo
 backup. The only way data leaves the device is the user explicitly exporting it through
 the system share sheet.
 
+The app asks for no SMS access at all. Bank alerts are imported by pasting them, which
+costs a copy and a tap and keeps the promise that an app holding this much financial
+detail never reads your messages.
+
 The merged manifest declares exactly these permissions:
 
 | Permission | Declared by | Why |
@@ -42,7 +46,6 @@ The merged manifest declares exactly these permissions:
 | `POST_NOTIFICATIONS` | this app | Payment reminders. Requested only once reminders are switched on. |
 | `RECEIVE_BOOT_COMPLETED` | this app | Re-register the daily reminder after a restart. |
 | `USE_BIOMETRIC` | this app | Optional biometric unlock. |
-| `READ_SMS` | this app | Optional bank-alert import. Requested only when that screen is opened; messages are parsed on device and discarded. |
 | `USE_FINGERPRINT` | androidx.biometric | Legacy fallback for the above. |
 | `WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` | WorkManager | Pulled in transitively by the scheduler. `ACCESS_NETWORK_STATE` only reads connectivity status; it does not grant network access. |
 
@@ -364,6 +367,57 @@ charts, formulas or images, which is where the format gets genuinely hard.
 Verified end to end: the file the app produces on a device opens in a spreadsheet reader
 with amounts as numbers and dates as dates.
 
+## What changed after the first release
+
+**Today refreshes itself.** Everything dated in this app is relative to today, and the
+snapshot used to capture that date only when a record changed. A phone left on the
+dashboard overnight kept yesterday's answer, quietly showing a payment as upcoming on the
+morning it became overdue. `TodayProvider` now emits at midnight and on the system clock
+and time zone broadcasts, and the snapshot takes it as an input like any other. Verified on
+a device: advancing the clock past midnight with the app untouched moves the header on and
+recomputes the forecast, because everyday spending is projected over the remaining days.
+
+**Budgets carry forward.** Rollover and a per-budget alert threshold. Only unspent money
+carries; an overspend is not carried as a debt, because that turns one bad month into a
+limit the next month cannot meet either, and a budget nobody can hit stops being read. The
+carry compounds across quiet months, is wiped by an overspend, reaches back no further than
+a year, and never before the budget existed.
+
+**Reports compare.** A single month says what happened, not whether that is normal. There
+are now three comparisons: income against spending month by month, each category against
+its own recent average, and what flowed through each account. A category with no history
+reports no comparison rather than being measured against a zero, the current month is kept
+out of its own baseline, and a month still running is flagged, since on the 3rd it always
+looks like spending stopped.
+
+**Credit cards know their cycle.** When the open cycle started, when the statement is cut,
+and when that bill falls due — worked out from the statement and due days rather than
+assumed. The projected bill is now the statement figure plus anything charged since, both
+already recorded, which also fixes reminders staying silent on a card paid off and then
+spent on again.
+
+**Backups say how exposed you are.** The status sits above the buttons, since this app is
+the only copy of these records. It stays quiet on an install with almost nothing in it,
+because warning somebody with four expenses teaches them to ignore the warning by the time
+it matters. Restoring now reads the file first and shows when it was taken and what is in
+it, while the current records are still there to compare against.
+
+**SMS import is paste-only.** `READ_SMS` is gone. Play grants it almost exclusively to
+default SMS handler apps, so it blocked distribution for a feature that works without it.
+Several messages can be pasted at once. The parser covers more of what the major Indian
+banks actually send, and duplicate detection now allows a day either side, because an alert
+can arrive after midnight for a purchase made before it.
+
+**The assistant knows more and asks better.** Six new intents, and suggested questions now
+come from the snapshot rather than a fixed list. Offering "who owes me money" to somebody
+with no people recorded gets the honest answer "nobody", which teaches them the assistant is
+not worth asking.
+
+**Setup ends with a forecast.** Onboarding used to drop the user on a dashboard having asked
+for a balance, a salary and their commitments without ever showing what those imply. The
+last question now leads to a review, with the answers saved first so the figures come from
+the same calculators the dashboard will use a moment later.
+
 ## Architecture
 
 ```
@@ -436,7 +490,7 @@ reconciliation adjustment.
 
 ## Tests
 
-296 JVM unit tests, all passing, covering every calculator plus the voice parser,
+367 JVM unit tests, all passing, covering every calculator plus the voice parser,
 the bank SMS parser, the assistant, budgets, runway, prepayment and insights:
 
 ```bash
