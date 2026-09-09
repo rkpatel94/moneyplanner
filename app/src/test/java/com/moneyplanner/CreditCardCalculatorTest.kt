@@ -133,4 +133,87 @@ class CreditCardCalculatorTest {
         assertFalse(status.hasUnbilled)
         assertEquals(rupees(20_000), status.projectedOutstanding)
     }
+
+    // ---- Statement cycles ----------------------------------------------------------
+
+    private fun cycleCard(statementDay: Int, dueDay: Int) =
+        creditCard(id = 1, statementDay = statementDay, dueDay = dueDay)
+
+    @Test
+    fun `a due day after the statement day falls in the same month`() {
+        // Statements on the 1st, due on the 20th: the bill cut on 1 Sep is due 20 Sep.
+        val cycle = CreditCardCalculator.currentCycle(
+            cycleCard(statementDay = 1, dueDay = 20),
+            date("2026-08-15")
+        )
+        assertEquals(date("2026-09-01"), cycle.statementOn)
+        assertEquals(date("2026-09-20"), cycle.dueOn)
+    }
+
+    @Test
+    fun `a due day before the statement day falls in the next month`() {
+        // Statements on the 25th, due on the 5th: the bill cut on 25 Aug is due 5 Sep.
+        val cycle = CreditCardCalculator.currentCycle(
+            cycleCard(statementDay = 25, dueDay = 5),
+            date("2026-08-15")
+        )
+        assertEquals(date("2026-08-25"), cycle.statementOn)
+        assertEquals(date("2026-09-05"), cycle.dueOn)
+    }
+
+    @Test
+    fun `a due day equal to the statement day gives a month to pay, not no time`() {
+        val cycle = CreditCardCalculator.currentCycle(
+            cycleCard(statementDay = 10, dueDay = 10),
+            date("2026-08-01")
+        )
+        assertEquals(date("2026-08-10"), cycle.statementOn)
+        assertEquals(date("2026-09-10"), cycle.dueOn)
+    }
+
+    @Test
+    fun `once the statement day has passed the open cycle is the next one`() {
+        val cycle = CreditCardCalculator.currentCycle(
+            cycleCard(statementDay = 5, dueDay = 25),
+            date("2026-08-06")
+        )
+        assertEquals(date("2026-09-05"), cycle.statementOn)
+        assertEquals(date("2026-08-06"), cycle.opensOn)
+    }
+
+    @Test
+    fun `the cycle opens the day after the previous statement`() {
+        val cycle = CreditCardCalculator.currentCycle(
+            cycleCard(statementDay = 5, dueDay = 25),
+            date("2026-08-20")
+        )
+        assertEquals(date("2026-08-06"), cycle.opensOn)
+        assertEquals(date("2026-09-05"), cycle.statementOn)
+    }
+
+    @Test
+    fun `a statement day of 31 lands on the last day of a short month`() {
+        val cycle = CreditCardCalculator.currentCycle(
+            cycleCard(statementDay = 31, dueDay = 20),
+            date("2026-02-10")
+        )
+        assertEquals(date("2026-02-28"), cycle.statementOn)
+    }
+
+    @Test
+    fun `only purchases inside the open cycle count towards the next bill`() {
+        val card = cycleCard(statementDay = 5, dueDay = 25)
+        val expenses = listOf(
+            // Before the cycle opened, so already billed.
+            purchase(id = 1, amount = 1_000, on = "2026-08-03"),
+            // Inside the open cycle.
+            purchase(id = 2, amount = 2_000, on = "2026-08-10"),
+            purchase(id = 3, amount = 500, on = "2026-09-05"),
+            // After the statement is cut, so on the bill after this one.
+            purchase(id = 4, amount = 9_000, on = "2026-09-06")
+        )
+        val spend = CreditCardCalculator.currentCycleSpend(card, expenses, date("2026-08-20"))
+
+        assertEquals(rupees(2_500), spend)
+    }
 }

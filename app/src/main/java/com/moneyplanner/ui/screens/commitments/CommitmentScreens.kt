@@ -201,6 +201,28 @@ fun CardsScreen(
                         )
                     }
 
+                    // The cycle explains when the next bill is cut and what will be on it,
+                    // which is the difference between knowing a due date and knowing
+                    // whether today's purchase lands on this bill or the next one.
+                    row.cycle?.let { cycle ->
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "This bill closes " +
+                                DateUtil.formatDayMonth(cycle.statementOn) +
+                                ", payable by " + DateUtil.formatDayMonth(cycle.dueOn) + ".",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (row.cycleSpend.isPositive) {
+                            Text(
+                                IndianFormat.format(row.cycleSpend) +
+                                    " charged in this cycle so far.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
                     Spacer(Modifier.height(8.dp))
                     row.nextDueDate?.let { due ->
                         StatusPill(

@@ -365,34 +365,43 @@ object ForecastCalculator {
     }
 
     /**
-     * The card bill, projected once against the outstanding the user has recorded.
+     * The card bill, projected once against what the card actually has on it.
      *
-     * It is placed in the month of the next due date and not repeated afterwards. The app
-     * has no way of knowing what will be spent on the card next month, and inventing a
-     * figure would be a guess presented as a fact.
+     * That is the statement figure the user entered plus anything charged to the card
+     * since. Both are already recorded, so counting them is not a guess: the bill the bank
+     * sends will contain them. What is still not projected is *future* card spending,
+     * because the app has no way of knowing it and inventing a figure would be a guess
+     * presented as a fact.
+     *
+     * There is no double count. A card purchase never reduced cash on its own day, so the
+     * only place it leaves the balance is here, when the bill is paid.
+     *
+     * It is placed on the due date of the cycle now open and not repeated afterwards.
      */
     private fun creditCardItems(
         snapshot: FinancialSnapshot,
         month: YearMonth
     ): List<ForecastItem> =
         snapshot.creditCards
-            .filter { it.isActive && it.currentOutstanding.isPositive }
+            .filter { it.isActive }
             .mapNotNull { card ->
-                val nextDue = RecurrenceCalculator.nextOccurrenceOnOrAfter(
-                    from = snapshot.today,
-                    start = snapshot.today.minusYears(5),
-                    end = null,
-                    dayOfMonth = card.dueDayOfMonth,
-                    frequency = com.moneyplanner.domain.model.Frequency.MONTHLY
-                ) ?: return@mapNotNull null
+                val owed = CreditCardCalculator.projectedOutstanding(card, snapshot.expenses)
+                if (!owed.isPositive) return@mapNotNull null
 
-                if (YearMonth.from(nextDue) != month) return@mapNotNull null
+                val dueOn = CreditCardCalculator.currentCycle(card, snapshot.today).dueOn
+                if (YearMonth.from(dueOn) != month) return@mapNotNull null
+
+                val unbilled = CreditCardCalculator.unbilledSpendOn(card, snapshot.expenses)
 
                 ForecastItem(
-                    date = nextDue,
+                    date = dueOn,
                     title = card.name,
-                    subtitle = "Credit card due",
-                    amount = card.currentOutstanding,
+                    subtitle = if (unbilled.isPositive) {
+                        "Credit card due, including spending since your statement"
+                    } else {
+                        "Credit card due"
+                    },
+                    amount = owed,
                     kind = ForecastItemKind.CREDIT_CARD,
                     sourceId = card.id,
                     isEstimate = false

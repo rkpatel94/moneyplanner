@@ -2,10 +2,13 @@ package com.moneyplanner.domain.calc
 
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.core.money.sumOfMoney
+import com.moneyplanner.core.time.DateUtil
 import com.moneyplanner.domain.model.CreditCard
 import com.moneyplanner.domain.model.Expense
 import com.moneyplanner.domain.model.FinancialSnapshot
 import com.moneyplanner.domain.model.PaymentMethod
+import java.time.LocalDate
+import java.time.YearMonth
 
 /**
  * What has gone on a card since the figure on it was last set.
@@ -60,13 +63,69 @@ object CreditCardCalculator {
             .coerceIn(0f, 1f)
     }
 
+    /**
+     * The billing cycle a card is currently in.
+     *
+     * A statement is cut on the card's statement day, and the bill for it falls due on the
+     * due day after that. Which month the due date lands in depends on the two days: a card
+     * that statements on the 25th and is due on the 5th is due the following month, while
+     * one that statements on the 1st and is due on the 20th is due in the same one. Working
+     * that out from the days rather than assuming is the whole job here.
+     */
+    fun currentCycle(card: CreditCard, today: LocalDate): StatementCycle {
+        val thisMonthStatement = DateUtil.dayInMonth(YearMonth.from(today), card.statementDayOfMonth)
+
+        // The cycle that is still open is the one whose statement has not been cut yet.
+        val statementOn = if (today.isAfter(thisMonthStatement)) {
+            DateUtil.dayInMonth(YearMonth.from(today).plusMonths(1), card.statementDayOfMonth)
+        } else {
+            thisMonthStatement
+        }
+        val previousStatement = DateUtil.dayInMonth(
+            YearMonth.from(statementOn).minusMonths(1),
+            card.statementDayOfMonth
+        )
+
+        // The first due day strictly after the statement is cut. Landing on the same day
+        // would give no time to pay it.
+        var dueOn = DateUtil.dayInMonth(YearMonth.from(statementOn), card.dueDayOfMonth)
+        if (!dueOn.isAfter(statementOn)) {
+            dueOn = DateUtil.dayInMonth(YearMonth.from(statementOn).plusMonths(1), card.dueDayOfMonth)
+        }
+
+        return StatementCycle(
+            opensOn = previousStatement.plusDays(1),
+            statementOn = statementOn,
+            dueOn = dueOn
+        )
+    }
+
+    /** Purchases charged inside the cycle that has not been billed yet. */
+    fun currentCycleSpend(
+        card: CreditCard,
+        expenses: List<Expense>,
+        today: LocalDate
+    ): Money {
+        val cycle = currentCycle(card, today)
+        return expenses
+            .filter { expense ->
+                expense.creditCardId == card.id &&
+                    expense.paymentMethod == PaymentMethod.CREDIT_CARD &&
+                    !expense.date.isBefore(cycle.opensOn) &&
+                    !expense.date.isAfter(cycle.statementOn)
+            }
+            .sumOfMoney { it.amount }
+    }
+
     fun statusFor(card: CreditCard, snapshot: FinancialSnapshot): CreditCardStatus {
         val unbilled = unbilledSpendOn(card, snapshot.expenses)
         return CreditCardStatus(
             card = card,
             unbilledSpend = unbilled,
             projectedOutstanding = card.currentOutstanding + unbilled,
-            purchaseCount = purchasesOn(card, snapshot.expenses).size
+            purchaseCount = purchasesOn(card, snapshot.expenses).size,
+            cycle = currentCycle(card, snapshot.today),
+            currentCycleSpend = currentCycleSpend(card, snapshot.expenses, snapshot.today)
         )
     }
 
@@ -74,12 +133,33 @@ object CreditCardCalculator {
         snapshot.creditCards.map { statusFor(it, snapshot) }
 }
 
+/**
+ * Where a card is in its billing cycle.
+ *
+ * [opensOn] and [statementOn] bound the purchases that will appear on the next statement;
+ * [dueOn] is when the bill for that statement has to be paid.
+ */
+data class StatementCycle(
+    val opensOn: LocalDate,
+    val statementOn: LocalDate,
+    val dueOn: LocalDate
+) {
+    fun daysUntilStatement(today: LocalDate): Long =
+        java.time.temporal.ChronoUnit.DAYS.between(today, statementOn)
+
+    fun daysUntilDue(today: LocalDate): Long =
+        java.time.temporal.ChronoUnit.DAYS.between(today, dueOn)
+}
+
 data class CreditCardStatus(
     val card: CreditCard,
     /** Charged to the card since the statement figure was entered. */
     val unbilledSpend: Money,
     val projectedOutstanding: Money,
-    val purchaseCount: Int
+    val purchaseCount: Int,
+    val cycle: StatementCycle,
+    /** Charged inside the cycle that has not been billed yet. */
+    val currentCycleSpend: Money = Money.ZERO
 ) {
     val hasUnbilled: Boolean get() = unbilledSpend.isPositive
 

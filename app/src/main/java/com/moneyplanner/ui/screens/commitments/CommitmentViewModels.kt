@@ -15,6 +15,7 @@ import com.moneyplanner.data.repo.TodayProvider
 import com.moneyplanner.data.repo.VehicleRepository
 import com.moneyplanner.domain.calc.RecurrenceCalculator
 import com.moneyplanner.domain.calc.CreditCardCalculator
+import com.moneyplanner.domain.calc.StatementCycle
 import com.moneyplanner.domain.model.AnnualExpense
 import com.moneyplanner.domain.model.BillAmountType
 import com.moneyplanner.domain.model.Category
@@ -64,7 +65,9 @@ class CardsViewModel @Inject constructor(
                         dayOfMonth = card.dueDayOfMonth,
                         frequency = Frequency.MONTHLY
                     ),
-                    unbilledSpend = CreditCardCalculator.unbilledSpendOn(card, expenses)
+                    unbilledSpend = CreditCardCalculator.unbilledSpendOn(card, expenses),
+                    cycle = CreditCardCalculator.currentCycle(card, now),
+                    cycleSpend = CreditCardCalculator.currentCycleSpend(card, expenses, now)
                 )
             },
             totalOutstanding = cards.filter { it.isActive }.sumOfMoney { it.currentOutstanding },
@@ -107,7 +110,11 @@ data class CardRow(
     val card: CreditCard,
     val nextDueDate: LocalDate?,
     /** Charged to the card since its statement figure was last entered. */
-    val unbilledSpend: Money = Money.ZERO
+    val unbilledSpend: Money = Money.ZERO,
+    /** Where the card is in its billing cycle. */
+    val cycle: StatementCycle? = null,
+    /** Charged inside the cycle that has not been billed yet. */
+    val cycleSpend: Money = Money.ZERO
 ) {
     val hasUnbilled: Boolean get() = unbilledSpend.isPositive
 
