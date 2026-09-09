@@ -20,15 +20,25 @@ import java.util.Locale
  */
 object BankSmsParser {
 
-    /** Words that mark money leaving the account. */
+    /**
+     * Words that mark money leaving the account.
+     *
+     * Drawn from the wording the major Indian banks actually send. "withdrawn at" covers
+     * ATM slips, "towards" appears in standing instructions and auto-debits, and the
+     * short forms are what the length-limited alerts fall back on.
+     */
     private val DEBIT_WORDS = listOf(
         "debited", "debit", "spent", "withdrawn", "paid", "purchase", "sent",
-        "transferred to", "trf to", "deducted"
+        "transferred to", "trf to", "deducted", "withdrawal", "w/d",
+        "dr ", "dr.", "towards", "charged", "swiped", "utilised", "utilized",
+        "payment of", "auto-debit", "auto debit", "standing instruction", "si executed"
     )
 
     /** Words that mark money arriving. */
     private val CREDIT_WORDS = listOf(
-        "credited", "credit", "received", "deposited", "refund", "cashback"
+        "credited", "credit", "received", "deposited", "refund", "cashback",
+        "cr ", "cr.", "has been credited", "money received", "reversed",
+        "reversal", "salary", "neft in", "imps in"
     )
 
     /**
@@ -39,7 +49,17 @@ object BankSmsParser {
         "otp", "one time password", "will be debited", "due on", "is due", "outstanding",
         "minimum amount due", "statement", "offer", "cashback offer", "eligible",
         "pre-approved", "loan offer", "apply now", "balance enquiry",
-        "available balance is", "avl bal is", "reward points", "emi of", "kyc"
+        "available balance is", "avl bal is", "reward points", "emi of", "kyc",
+        // Requests and failures are not movements, and both mention an amount.
+        "has requested", "requesting", "collect request", "payment request",
+        "failed", "declined", "unsuccessful", "could not be processed", "reversed due to",
+        "insufficient", "will be credited", "scheduled", "shall be debited",
+        // Marketing that survives the link being stripped.
+        "download the app", "click here", "t&c apply", "terms apply", "limited period",
+        "congratulations", "you are eligible", "upgrade your", "activate now",
+        // Informational balances and mandates.
+        "closing balance", "opening balance", "e-mandate", "mandate registered",
+        "cheque returned", "min amt due"
     )
 
     /**
@@ -56,29 +76,47 @@ object BankSmsParser {
     private val AMOUNT_PATTERNS = listOf(
         // Rs.1,500.00 / INR 2,500 / Rs 250.00 / ₹1,234.56
         Regex("""(?:rs|inr|₹)\.?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)""", RegexOption.IGNORE_CASE),
+        // Amount before the currency, as several banks write it: "1,500.00 INR".
+        Regex("""([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:rs|inr|₹)\b""", RegexOption.IGNORE_CASE),
         // "debited by 500.0" — the amount trails the verb with no currency marker.
         Regex(
-            """(?:debited|credited|spent|paid)\s+(?:by|for)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)""",
+            """(?:debited|credited|spent|paid|withdrawn|charged)\s+(?:by|for|with)?\s*""" +
+                """([0-9][0-9,]*(?:\.[0-9]{1,2})?)""",
             RegexOption.IGNORE_CASE
-        )
+        ),
+        // "of Rs" dropped entirely: "a/c debited of 1200 on 05-09-26".
+        Regex("""\bof\s+([0-9][0-9,]*(?:\.[0-9]{1,2})?)\b""", RegexOption.IGNORE_CASE)
     )
 
+    /**
+     * The balance quoted after a transaction, which must never be read as the amount.
+     *
+     * Banks abbreviate this a dozen ways and the shorter forms are the dangerous ones: a
+     * message ending "Bal 42,500" would otherwise contribute a 42,500 rupee expense.
+     */
     private val BALANCE_PATTERN = Regex(
-        """(?:avl|available|avlbl|a/c)\s*(?:bal|balance)[:\s]*(?:rs|inr|₹)?\.?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)""",
+        """(?:avl|available|avlbl|avbl|a/c|acct|account|clear|closing|net)?\s*""" +
+            """(?:bal|balance|bal\.)[:\s-]*(?:is)?[:\s]*""" +
+            """(?:rs|inr|₹)?\.?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)""",
         RegexOption.IGNORE_CASE
     )
 
     private val ACCOUNT_PATTERN = Regex(
-        """(?:a/c|acct|account|card)\s*(?:no\.?)?\s*[*x]{0,6}([0-9]{3,6})""",
+        """(?:a/c|ac|acct|account|card|xx|ending)\s*(?:no\.?|number)?\s*[*xX#]{0,6}([0-9]{3,6})\b""",
         RegexOption.IGNORE_CASE
     )
 
     /** Merchant or counterparty, taken from whatever follows the connecting word. */
     private val MERCHANT_PATTERNS = listOf(
         Regex("""(?:trf to|transferred to)\s+([A-Za-z][A-Za-z0-9 &._-]{2,40})""", RegexOption.IGNORE_CASE),
+        // A UPI handle needs no pattern of its own: the character class below stops at
+        // the "@", turning "bigbasket@icici" into the readable "Bigbasket" rather than
+        // the raw handle.
         Regex("""\bto\s+(?:vpa\s+)?([A-Za-z][A-Za-z0-9 &._-]{2,40})""", RegexOption.IGNORE_CASE),
-        Regex("""\bat\s+([A-Za-z][A-Za-z0-9 &._-]{2,40})""", RegexOption.IGNORE_CASE),
-        Regex("""\bfrom\s+([A-Za-z][A-Za-z0-9 &._-]{2,40})""", RegexOption.IGNORE_CASE)
+        Regex("""\b(?:at|towards)\s+([A-Za-z][A-Za-z0-9 &._-]{2,40})""", RegexOption.IGNORE_CASE),
+        Regex("""\bfrom\s+([A-Za-z][A-Za-z0-9 &._-]{2,40})""", RegexOption.IGNORE_CASE),
+        // "Info: NEFT-ACME TRADERS" and "Ref: SWIGGY" style trailers.
+        Regex("""\b(?:info|ref|remarks?)[:\s-]+([A-Za-z][A-Za-z0-9 &._-]{2,40})""", RegexOption.IGNORE_CASE)
     )
 
     /** Trailing noise that banks append after the merchant name. */

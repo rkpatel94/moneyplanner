@@ -2,21 +2,19 @@ package com.moneyplanner.ui.screens.sms
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.moneyplanner.core.money.Money
 import com.moneyplanner.data.repo.CategoryRepository
 import com.moneyplanner.data.repo.ExpenseRepository
 import com.moneyplanner.data.repo.IncomeRepository
 import com.moneyplanner.data.repo.TodayProvider
 import com.moneyplanner.data.sms.SmsCandidate
-import com.moneyplanner.data.sms.SmsInboxReader
-import com.moneyplanner.data.sms.SmsScanResult
 import com.moneyplanner.domain.model.Category
 import com.moneyplanner.domain.model.Expense
 import com.moneyplanner.domain.model.IncomeTransaction
 import com.moneyplanner.domain.model.IncomeType
 import com.moneyplanner.domain.model.PaymentMethod
 import com.moneyplanner.domain.nlp.BankSmsParser
-import com.moneyplanner.domain.nlp.SpokenExpenseParser
+import com.moneyplanner.domain.nlp.DuplicateVerdict
+import com.moneyplanner.domain.nlp.SmsDuplicateDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,19 +22,27 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 import javax.inject.Inject
 
 /**
- * Reviewing bank alerts before they become records.
+ * Turning bank alerts into entries, from text the user pastes in.
  *
- * Every candidate is opt-in. Anything that looks like it has already been entered by hand
- * is flagged and left unselected, because a duplicated expense is worse than a missing one:
- * a missing entry is visibly absent, while a duplicate quietly makes the balance wrong.
+ * Reading the inbox was removed rather than kept behind a permission prompt. `READ_SMS` is
+ * a restricted permission that Play grants almost exclusively to default SMS handler apps,
+ * so it was a distribution blocker for a feature that works without it; and an app whose
+ * whole claim is that it holds your money data and can send nothing anywhere is stronger
+ * for not asking to read your messages at all.
+ *
+ * Pasting costs a copy and a tap and gives the user exactly the control the review list was
+ * always there to provide. Several messages can be pasted at once, separated by blank
+ * lines, which is how a batch actually arrives when someone catches up on a week.
+ *
+ * Nothing imports without being seen. Anything that looks like something already recorded
+ * arrives unticked and says why: a missed import is visibly absent and gets fixed, while a
+ * duplicate is invisible and quietly makes every balance downstream wrong.
  */
 @HiltViewModel
 class SmsImportViewModel @Inject constructor(
-    private val smsInboxReader: SmsInboxReader,
     private val expenseRepository: ExpenseRepository,
     private val incomeRepository: IncomeRepository,
     private val categoryRepository: CategoryRepository,
@@ -46,105 +52,132 @@ class SmsImportViewModel @Inject constructor(
     private val _state = MutableStateFlow(SmsImportState())
     val state: StateFlow<SmsImportState> = _state.asStateFlow()
 
-    fun refreshPermission() {
-        _state.update { it.copy(hasPermission = smsInboxReader.hasPermission()) }
-    }
+    private var nextId = 1L
 
-    fun scan() {
+    /**
+     * Parses everything in the pasted text.
+     *
+     * Messages are separated by a blank line, which is what pasting several in a row
+     * naturally produces. A single message with no blank line in it is the ordinary case
+     * and still works.
+     */
+    fun parsePasted(text: String) {
         viewModelScope.launch {
-            _state.update {
-                it.copy(
-                    isScanning = true,
-                    scanError = null,
-                    hasPermission = smsInboxReader.hasPermission()
-                )
-            }
+            val blocks = text.split(Regex("\\n\\s*\\n"))
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
 
-            val result = smsInboxReader.readRecent()
-
-            val candidates = when (result) {
-                is SmsScanResult.Scanned -> result.candidates
-                SmsScanResult.PermissionMissing -> {
-                    _state.update {
-                        it.copy(isScanning = false, hasPermission = false, hasScanned = false)
-                    }
-                    return@launch
-                }
-                is SmsScanResult.Failed -> {
-                    _state.update {
-                        it.copy(
-                            isScanning = false,
-                            hasScanned = true,
-                            scanError = "Your messages could not be read (${result.reason}). " +
-                                "You can still paste a message instead."
-                        )
-                    }
-                    return@launch
-                }
+            if (blocks.isEmpty()) {
+                _state.update { it.copy(pastedError = "Paste a bank message first.") }
+                return@launch
             }
 
             val categories = categoryRepository.expenseCategories.first()
             val existing = expenseRepository.all.first()
+            val now = today.today()
 
-            val rows = candidates.map { candidate ->
-                val amount = candidate.parsed.amount ?: Money.ZERO
-                val date = candidate.parsed.date ?: candidate.receivedOn
+            val accepted = mutableListOf<SmsImportRow>()
+            val seen = mutableListOf<Pair<com.moneyplanner.core.money.Money, java.time.LocalDate>>()
+            var rejected = 0
+            var lastReason: String? = null
 
-                // An expense on the same day for the same amount is almost certainly the
-                // same transaction already entered by hand.
-                val duplicate = existing.any { it.amount == amount && it.date == date }
+            blocks.forEach { block ->
+                val parsed = BankSmsParser.parse(block, now)
+                if (!parsed.isTransaction) {
+                    rejected++
+                    lastReason = parsed.ignoredReason
+                    return@forEach
+                }
 
-                SmsImportRow(
+                val amount = parsed.amount ?: return@forEach
+                val date = parsed.date ?: now
+
+                val verdict = SmsDuplicateDetector.check(
+                    amount = amount,
+                    date = date,
+                    merchant = parsed.merchant,
+                    existing = existing,
+                    earlierInBatch = seen
+                )
+                seen += amount to date
+
+                val candidate = SmsCandidate(
+                    smsId = nextId++,
+                    sender = "Pasted",
+                    receivedOn = now,
+                    parsed = parsed
+                )
+                accepted += SmsImportRow(
                     candidate = candidate,
                     suggestedCategoryId = suggestCategory(candidate, categories),
-                    isDuplicate = duplicate,
-                    // Duplicates start unselected; everything else is ready to import.
-                    isSelected = !duplicate
+                    duplicate = verdict,
+                    // Only something with no sign of being a duplicate is ready to go.
+                    isSelected = !verdict.isDuplicate
                 )
             }
 
-            _state.update {
-                it.copy(
-                    rows = rows,
+            _state.update { current ->
+                current.copy(
+                    rows = current.rows + accepted,
                     categories = categories,
-                    isScanning = false,
-                    hasScanned = true,
-                    scanError = null,
-                    messagesInspected = (result as SmsScanResult.Scanned).messagesInspected,
-                    messagesFromBanks = result.messagesFromBanks
+                    hasParsed = true,
+                    lastAccepted = accepted.size,
+                    lastRejected = rejected,
+                    pastedError = when {
+                        accepted.isNotEmpty() -> null
+                        rejected == 1 -> lastReason
+                            ?: "That does not look like a transaction alert."
+                        else -> "None of those looked like transaction alerts."
+                    }
                 )
             }
         }
     }
 
     /**
-     * Guesses a category from the merchant name by reusing the voice parser, so "SWIGGY"
-     * lands on Food through exactly the same synonym table the rest of the app uses.
+     * Matches the message against the user's own categories first, then against everyday
+     * words, so somebody who renamed a category keeps their own naming.
      */
     private fun suggestCategory(candidate: SmsCandidate, categories: List<Category>): Long? {
-        val merchant = candidate.parsed.merchant ?: return null
-        return SpokenExpenseParser.parse(
-            spoken = "0 $merchant",
-            categories = categories,
-            today = today.today()
-        ).categoryId
+        val haystack = listOfNotNull(
+            candidate.parsed.merchant,
+            candidate.parsed.originalText
+        ).joinToString(" ").lowercase()
+
+        categories.firstOrNull { haystack.contains(it.name.lowercase()) }?.let { return it.id }
+
+        val hints = mapOf(
+            "food" to listOf("swiggy", "zomato", "restaurant", "cafe", "hotel", "eatery"),
+            "grocery" to listOf("bigbasket", "dmart", "blinkit", "zepto", "grocer", "kirana"),
+            "travel" to listOf("uber", "ola", "irctc", "rapido", "metro", "indigo"),
+            "fuel" to listOf("petrol", "fuel", "hpcl", "iocl", "bpcl", "shell"),
+            "shopping" to listOf("amazon", "flipkart", "myntra", "ajio", "meesho"),
+            "utilities" to listOf("electricity", "recharge", "broadband", "airtel", "jio")
+        )
+        hints.forEach { (categoryName, words) ->
+            if (words.any { haystack.contains(it) }) {
+                categories.firstOrNull { it.name.equals(categoryName, ignoreCase = true) }
+                    ?.let { return it.id }
+            }
+        }
+        return null
     }
 
-    fun toggle(smsId: Long) {
+    fun toggle(id: Long) {
         _state.update { current ->
             current.copy(
                 rows = current.rows.map { row ->
-                    if (row.candidate.smsId == smsId) row.copy(isSelected = !row.isSelected) else row
+                    if (row.candidate.smsId == id) row.copy(isSelected = !row.isSelected) else row
                 }
             )
         }
     }
 
-    fun setCategory(smsId: Long, categoryId: Long) {
+    fun setCategory(id: Long, categoryId: Long) {
         _state.update { current ->
             current.copy(
                 rows = current.rows.map { row ->
-                    if (row.candidate.smsId == smsId) {
+                    if (row.candidate.smsId == id) {
                         row.copy(suggestedCategoryId = categoryId)
                     } else {
                         row
@@ -160,10 +193,18 @@ class SmsImportViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Writes the selected rows. Debits become expenses and credits become income receipts,
-     * so a salary alert does not land in the ledger as negative spending.
-     */
+    fun remove(id: Long) {
+        _state.update { current ->
+            current.copy(rows = current.rows.filterNot { it.candidate.smsId == id })
+        }
+    }
+
+    fun clearAll() {
+        _state.update {
+            it.copy(rows = emptyList(), pastedError = null, hasParsed = false)
+        }
+    }
+
     fun importSelected(onDone: (Int) -> Unit) {
         viewModelScope.launch {
             val selected = _state.value.rows.filter { it.isSelected }
@@ -176,7 +217,9 @@ class SmsImportViewModel @Inject constructor(
                 val date = parsed.date ?: row.candidate.receivedOn
 
                 if (parsed.isDebit) {
-                    val categoryId = row.suggestedCategoryId ?: fallbackCategory?.id ?: return@forEach
+                    val categoryId = row.suggestedCategoryId
+                        ?: fallbackCategory?.id
+                        ?: return@forEach
                     expenseRepository.add(
                         Expense(
                             id = 0,
@@ -212,99 +255,36 @@ class SmsImportViewModel @Inject constructor(
             onDone(imported)
         }
     }
-
-    /**
-     * Parses a single pasted message.
-     *
-     * This path needs no permission at all, so someone who would rather not grant SMS
-     * access can still avoid typing an amount by hand.
-     */
-    fun parsePasted(text: String) {
-        viewModelScope.launch {
-            val parsed = BankSmsParser.parse(text, today.today())
-            val categories = categoryRepository.expenseCategories.first()
-
-            if (!parsed.isTransaction) {
-                _state.update {
-                    it.copy(
-                        pastedError = parsed.ignoredReason
-                            ?: "That does not look like a transaction alert.",
-                        pastedRow = null
-                    )
-                }
-                return@launch
-            }
-
-            val candidate = SmsCandidate(
-                smsId = -1L,
-                sender = "Pasted",
-                receivedOn = today.today(),
-                parsed = parsed
-            )
-            _state.update {
-                it.copy(
-                    pastedError = null,
-                    pastedRow = SmsImportRow(
-                        candidate = candidate,
-                        suggestedCategoryId = suggestCategory(candidate, categories),
-                        isDuplicate = false,
-                        isSelected = true
-                    ),
-                    categories = categories
-                )
-            }
-        }
-    }
-
-    fun importPasted(onDone: (Int) -> Unit) {
-        val row = _state.value.pastedRow ?: return
-        _state.update { it.copy(rows = it.rows + row, pastedRow = null) }
-        importSelected(onDone)
-    }
-
-    fun clearPasted() {
-        _state.update { it.copy(pastedRow = null, pastedError = null) }
-    }
 }
 
 data class SmsImportRow(
     val candidate: SmsCandidate,
     val suggestedCategoryId: Long?,
-    /** True when an expense with the same amount and date already exists. */
-    val isDuplicate: Boolean,
+    /** How sure the app is that this is something already recorded. */
+    val duplicate: DuplicateVerdict,
     val isSelected: Boolean
-)
+) {
+    val isDuplicate: Boolean get() = duplicate.isDuplicate
+}
 
 data class SmsImportState(
     val rows: List<SmsImportRow> = emptyList(),
     val categories: List<Category> = emptyList(),
-    val hasPermission: Boolean = false,
-    val isScanning: Boolean = false,
-    val hasScanned: Boolean = false,
-    /** Set when the inbox could not be read at all, as opposed to holding nothing. */
-    val scanError: String? = null,
-    val messagesInspected: Int = 0,
-    val messagesFromBanks: Int = 0,
-    val pastedRow: SmsImportRow? = null,
+    val hasParsed: Boolean = false,
+    /** How the last paste went, so the screen can say what happened to it. */
+    val lastAccepted: Int = 0,
+    val lastRejected: Int = 0,
     val pastedError: String? = null
 ) {
     val selectedCount: Int get() = rows.count { it.isSelected }
     val duplicateCount: Int get() = rows.count { it.isDuplicate }
 
-    /**
-     * Why an empty result was empty, so the screen can say something useful instead of
-     * "nothing found" three different ways.
-     */
-    val emptyExplanation: String?
+    /** Set when a paste held messages that were not transactions, so it can be explained. */
+    val skippedNote: String?
         get() = when {
-            !hasScanned || rows.isNotEmpty() || scanError != null -> null
-            messagesInspected == 0 ->
-                "No messages at all in the last 30 days."
-            messagesFromBanks == 0 ->
-                "Looked at $messagesInspected messages, but none came from a bank " +
-                    "shortcode. Alerts sent from an ordinary phone number are skipped."
-            else ->
-                "Read $messagesFromBanks bank messages, but none looked like a debit or " +
-                    "credit that is not already recorded."
+            lastRejected == 0 -> null
+            lastAccepted == 0 -> null
+            lastRejected == 1 -> "One message was not a transaction and was skipped."
+            else -> "$lastRejected messages were not transactions and were skipped."
         }
 }

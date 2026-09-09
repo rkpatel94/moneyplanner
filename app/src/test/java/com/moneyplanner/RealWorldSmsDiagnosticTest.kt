@@ -132,4 +132,100 @@ class RealWorldSmsDiagnosticTest {
         val parsed = parse("Rs.500.00 debited from A/c X1234 on 20-08-25. https://b.com/offer")
         assertTrue(parsed.isTransaction)
     }
+
+    // ---- Formats added after the first release --------------------------------------
+
+    @Test
+    fun `an amount written before the currency still parses`() {
+        val parsed = parse(
+            "Your A/c XX4567 has been debited 2,450.00 INR on 05-09-26 towards AMAZON. " +
+                "Avbl Bal 18,200.00 INR"
+        )
+        assertTrue(parsed.isTransaction)
+        assertEquals(245_000L, parsed.amount?.paise)
+    }
+
+    @Test
+    fun `a short balance abbreviation is not mistaken for the amount`() {
+        // "Bal 42,500" at the end used to be read as a 42,500 rupee transaction.
+        val parsed = parse("A/c X1234 debited Rs.300 on 05-09-26. Bal 42,500")
+        assertEquals(30_000L, parsed.amount?.paise)
+    }
+
+    @Test
+    fun `an atm withdrawal is a debit`() {
+        val parsed = parse(
+            "Rs.5000 withdrawn from A/c XX1234 at HDFC ATM on 05-09-26. Avl Bal Rs.20000"
+        )
+        assertTrue(parsed.isTransaction)
+        assertTrue(parsed.isDebit)
+        assertEquals(500_000L, parsed.amount?.paise)
+    }
+
+    @Test
+    fun `an auto debit standing instruction is a debit`() {
+        val parsed = parse(
+            "INR 1,899.00 debited from A/c XX1234 towards NETFLIX auto debit on 05-09-26."
+        )
+        assertTrue(parsed.isTransaction)
+        assertTrue(parsed.isDebit)
+        assertEquals(189_900L, parsed.amount?.paise)
+    }
+
+    @Test
+    fun `a salary credit is a credit`() {
+        val parsed = parse(
+            "Rs.85,000.00 credited to A/c XX1234 on 01-09-26 by NEFT. Info: SALARY SEP"
+        )
+        assertTrue(parsed.isTransaction)
+        assertFalse(parsed.isDebit)
+        assertEquals(8_500_000L, parsed.amount?.paise)
+    }
+
+    @Test
+    fun `a collect request is not a transaction`() {
+        // Nobody has paid anything yet, but the message names an amount.
+        val parsed = parse(
+            "SWIGGY has requested Rs.450 from you. Approve in your UPI app before 6pm."
+        )
+        assertFalse(parsed.isTransaction)
+    }
+
+    @Test
+    fun `a failed payment is not a transaction`() {
+        val parsed = parse(
+            "Your payment of Rs.1,200 to BIGBASKET failed. The amount will be credited back."
+        )
+        assertFalse(parsed.isTransaction)
+    }
+
+    @Test
+    fun `a scheduled future debit is not a transaction yet`() {
+        val parsed = parse(
+            "Rs.2,500 shall be debited from A/c XX1234 on 10-09-26 towards your SIP."
+        )
+        assertFalse(parsed.isTransaction)
+    }
+
+    @Test
+    fun `a promotional message that survives link stripping is still discarded`() {
+        val parsed = parse(
+            "Congratulations! You are eligible for a pre-approved loan of Rs.5,00,000. " +
+                "Click here to activate now."
+        )
+        assertFalse(parsed.isTransaction)
+    }
+
+    @Test
+    fun `an amount with no currency marker after of parses`() {
+        val parsed = parse("A/c X1234 debited of 1200 on 05-09-26 trf to ACME")
+        assertTrue(parsed.isTransaction)
+        assertEquals(120_000L, parsed.amount?.paise)
+    }
+
+    @Test
+    fun `the account tail is read from an ending form`() {
+        val parsed = parse("Rs.500 spent on card ending 9876 at CAFE on 05-09-26")
+        assertEquals("9876", parsed.accountTail)
+    }
 }

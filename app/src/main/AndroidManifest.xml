@@ -9,14 +9,6 @@
     <!-- Optional app lock -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
-    <!--
-        Optional: reads bank alert SMS so expenses do not have to be typed by hand.
-        Requested only when the user opens the import screen and never at startup.
-        Messages are parsed on the device and discarded; nothing is stored or sent,
-        and the app has no INTERNET permission with which to send anything.
-    -->
-    <uses-permission android:name="android.permission.READ_SMS" />
-
     <!-- No INTERNET permission: this app is fully offline by design. -->
 
     <application
