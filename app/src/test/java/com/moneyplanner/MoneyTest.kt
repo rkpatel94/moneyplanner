@@ -97,4 +97,13 @@ class MoneyTest {
         assertEquals("1200.05", IndianFormat.formatForExport(Money(120_005)))
         assertEquals("-450.00", IndianFormat.formatForExport(Money(-45_000)))
     }
+
+    @Test
+    fun `a signed amount carries its direction, and zero carries none`() {
+        assertEquals("+₹4,000", IndianFormat.formatSigned(rupees(4_000)))
+        assertEquals("-₹4,000", IndianFormat.formatSigned(rupees(-4_000)))
+        // Zero is neither a gain nor a loss, so "+0" would claim a direction nothing
+        // moved to justify.
+        assertEquals("₹0", IndianFormat.formatSigned(rupees(0)))
+    }
 }

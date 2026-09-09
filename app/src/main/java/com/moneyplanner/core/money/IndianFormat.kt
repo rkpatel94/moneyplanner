@@ -60,8 +60,18 @@ object IndianFormat {
     }
 
     /** Formats with an explicit sign, used for money-in and money-out rows. */
-    fun formatSigned(money: Money): String =
-        if (money.isNegative) format(money) else "+" + format(money)
+    /**
+     * With a leading sign, except at zero.
+     *
+     * Zero is neither a gain nor a loss, and "+₹0" reads as a claim about direction that
+     * nothing was moved to justify. A month where as much went out as came in shows a
+     * plain ₹0 rather than appearing to have gained nothing.
+     */
+    fun formatSigned(money: Money): String = when {
+        money.isZero -> format(money)
+        money.isNegative -> format(money)
+        else -> "+" + format(money)
+    }
 
     /**
      * A compact form for dashboard tiles where space is tight:

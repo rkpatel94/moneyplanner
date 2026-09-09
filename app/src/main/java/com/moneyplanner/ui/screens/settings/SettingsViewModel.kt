@@ -203,10 +203,25 @@ class SettingsViewModel @Inject constructor(
 
     // ---- Backup and export ------------------------------------------------------
 
+    /**
+     * Writes a backup file and hands it to the share sheet.
+     *
+     * The run is recorded, so the status above reflects it. Only this counts as a backup:
+     * the CSV and Excel exports are extracts, and neither can restore the app, so treating
+     * them as backups would quiet a warning that is still true.
+     *
+     * Whether the user actually filed the shared copy anywhere is beyond what the app can
+     * know, exactly as it is for an automatic copy written to a folder that might later be
+     * deleted. What is certain is that a backup was made, and saying so is closer to true
+     * than telling somebody who backs up weekly that they never have.
+     */
     fun exportBackup() {
         viewModelScope.launch {
             runCatching { backupManager.exportJson(today.today()) }
-                .onSuccess { _events.value = SettingsEvent.ShareFile(it, "application/json") }
+                .onSuccess { file ->
+                    settingsStore.recordBackupRun(today.today().toEpochDay())
+                    _events.value = SettingsEvent.ShareFile(file, "application/json")
+                }
                 .onFailure {
                     _events.value = SettingsEvent.Message("The backup could not be created.")
                 }
