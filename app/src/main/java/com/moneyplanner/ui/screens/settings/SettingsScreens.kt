@@ -17,11 +17,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.AlertDialog
+import com.moneyplanner.data.backup.BackupPreview
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -52,6 +55,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moneyplanner.core.money.IndianFormat
 import com.moneyplanner.core.time.DateUtil
+import com.moneyplanner.ui.theme.MoneyTheme
 import com.moneyplanner.data.prefs.ThemeMode
 import com.moneyplanner.domain.model.Category
 import com.moneyplanner.domain.model.CategoryType
@@ -75,6 +79,8 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val excelRange by viewModel.excelRange.collectAsStateWithLifecycle()
+    val pendingRestore by viewModel.restorePreview.collectAsStateWithLifecycle()
+    val colors = MoneyTheme.colors
     val event by viewModel.events.collectAsStateWithLifecycle()
     val isResetting by viewModel.isResetting.collectAsStateWithLifecycle()
     val snackbarHost = remember { SnackbarHostState() }
@@ -90,7 +96,7 @@ fun SettingsScreen(
 
     val restoreLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
-    ) { uri -> uri?.let(viewModel::restoreBackup) }
+    ) { uri -> uri?.let(viewModel::previewRestore) }
 
     val csvImportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -330,6 +336,48 @@ fun SettingsScreen(
                 }
             }
 
+            // The status goes above the buttons, not below them. This app is the only
+            // copy of these records, so how exposed they are is the first thing to say
+            // in this section rather than a footnote under it.
+            state.backupHealth?.let { health ->
+                item {
+                    SectionCard(title = "Backup status") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (health.needsAttention) {
+                                    Icons.Default.WarningAmber
+                                } else {
+                                    Icons.Default.CheckCircle
+                                },
+                                contentDescription = null,
+                                tint = when {
+                                    health.isSerious -> colors.negative
+                                    health.needsAttention -> colors.warning
+                                    else -> colors.positive
+                                }
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    health.headline(),
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                health.detail()?.let { detail ->
+                                    Text(
+                                        detail,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             item {
                 SectionCard(
                     title = "Your data",
@@ -548,6 +596,85 @@ fun SettingsScreen(
 
     if (excelRange.isOpen) {
         ExcelExportDialog(range = excelRange, viewModel = viewModel)
+    }
+
+    pendingRestore?.let { pending ->
+        RestorePreviewDialog(preview = pending.preview, viewModel = viewModel)
+    }
+}
+
+/**
+ * What a backup holds, shown before it replaces anything.
+ *
+ * Restoring is the one action in the app with nothing behind it: every record is replaced
+ * and there is no undo. Naming what is in the file, while the current records are still
+ * there, is the difference between a decision and a leap.
+ */
+@Composable
+private fun RestorePreviewDialog(
+    preview: BackupPreview.Readable,
+    viewModel: SettingsViewModel
+) {
+    val colors = MoneyTheme.colors
+
+    AlertDialog(
+        onDismissRequest = viewModel::dismissRestorePreview,
+        shape = MaterialTheme.shapes.large,
+        title = { Text("Restore this backup?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    preview.exportedOn
+                        ?.let { "Taken on " + DateUtil.formatDate(it) + "." }
+                        ?: "This file does not say when it was taken.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+
+                if (preview.isEmpty) {
+                    StatusPill(
+                        text = "This backup is empty. Restoring it would leave you with nothing.",
+                        containerColor = colors.warningContainer,
+                        contentColor = colors.onWarningContainer
+                    )
+                } else {
+                    Text("It contains:", style = MaterialTheme.typography.bodyMedium)
+                    RestoreCountRow("Expenses", preview.expenses)
+                    RestoreCountRow("Income receipts", preview.incomeTransactions)
+                    RestoreCountRow("People", preview.people)
+                    RestoreCountRow("Loans", preview.emis)
+                    RestoreCountRow("Bills", preview.bills)
+                    RestoreCountRow("Goals", preview.goals)
+                    RestoreCountRow("Accounts", preview.accounts)
+                }
+
+                Text(
+                    "Everything currently in the app is replaced. This cannot be undone, " +
+                        "so take a backup first if you are not sure.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.negative
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = viewModel::confirmRestore) { Text("Replace everything") }
+        },
+        dismissButton = {
+            TextButton(onClick = viewModel::dismissRestorePreview) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun RestoreCountRow(label: String, count: Int) {
+    if (count == 0) return
+    Row(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(count.toString(), style = MaterialTheme.typography.bodySmall)
     }
 }
 

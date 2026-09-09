@@ -462,6 +462,69 @@ class BackupManager @Inject constructor(
      * the existing data untouched rather than half replaced. Ids are preserved so that
      * the relationships between records survive intact.
      */
+    /**
+     * Reads a backup and reports what is in it, without changing anything.
+     *
+     * Restoring replaces every record in the app, and there is no undo. Doing that to a
+     * file the user has only identified by its name is asking them to trust a filename
+     * with their entire financial history. This lets them see what they are about to swap
+     * in — when it was taken, and how much is in it — while the current records are still
+     * there to compare against.
+     */
+    suspend fun previewJson(uri: Uri): BackupPreview = withContext(io) {
+        val text = try {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: return@withContext BackupPreview.Unreadable("The file could not be opened.")
+        } catch (error: Exception) {
+            return@withContext BackupPreview.Unreadable("The file could not be read.")
+        }
+
+        val root = try {
+            JSONObject(text)
+        } catch (error: Exception) {
+            return@withContext BackupPreview.Unreadable(
+                "This does not look like a Money Planner backup."
+            )
+        }
+
+        val version = root.optInt("formatVersion", 0)
+        if (version <= 0) {
+            return@withContext BackupPreview.Unreadable(
+                "This does not look like a Money Planner backup."
+            )
+        }
+        if (version > FORMAT_VERSION) {
+            return@withContext BackupPreview.Unreadable(
+                "This backup was made by a newer version of the app."
+            )
+        }
+
+        fun count(key: String) = root.optJSONArray(key)?.length() ?: 0
+
+        BackupPreview.Readable(
+            exportedOn = root.optStringOrNull("exportedOn")
+                ?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
+            formatVersion = version,
+            expenses = count("expenses"),
+            incomeTransactions = count("incomeTransactions"),
+            people = count("people"),
+            emis = count("emis"),
+            bills = count("recurringBills"),
+            goals = count("savingsGoals"),
+            accounts = count("accounts"),
+            // Everything countable, so a file that parses but holds nothing can be
+            // recognised as empty before it replaces records that are not.
+            totalRecords = listOf(
+                "expenses", "incomeTransactions", "incomeSources", "people",
+                "personLedgerEntries", "settlements", "sharedExpenses", "emis",
+                "emiPayments", "creditCards", "creditCardPayments", "recurringBills",
+                "billPayments", "annualExpenses", "annualExpensePayments",
+                "savingsGoals", "savingsContributions", "accounts", "accountTransfers",
+                "adjustments", "budgets"
+            ).sumOf { count(it) }
+        )
+    }
+
     suspend fun importJson(uri: Uri): RestoreResult = withContext(io) {
         val text = try {
             context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
@@ -965,6 +1028,28 @@ class BackupManager @Inject constructor(
         "${context.packageName}.fileprovider",
         file
     )
+}
+
+/**
+ * What a backup file turns out to contain, read before anything is replaced.
+ */
+sealed interface BackupPreview {
+    data class Readable(
+        val exportedOn: LocalDate?,
+        val formatVersion: Int,
+        val expenses: Int,
+        val incomeTransactions: Int,
+        val people: Int,
+        val emis: Int,
+        val bills: Int,
+        val goals: Int,
+        val accounts: Int,
+        val totalRecords: Int
+    ) : BackupPreview {
+        val isEmpty: Boolean get() = totalRecords == 0
+    }
+
+    data class Unreadable(val message: String) : BackupPreview
 }
 
 sealed interface RestoreResult {

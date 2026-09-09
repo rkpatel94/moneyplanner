@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.data.backup.AutoBackupManager
 import com.moneyplanner.data.backup.BackupManager
+import com.moneyplanner.data.backup.BackupPreview
 import com.moneyplanner.data.backup.ExportResult
 import com.moneyplanner.data.backup.TransactionExporter
 import com.moneyplanner.data.backup.PdfTransactionExporter
@@ -22,6 +23,8 @@ import com.moneyplanner.data.repo.ResetRepository
 import com.moneyplanner.data.repo.SnapshotRepository
 import com.moneyplanner.data.repo.TodayProvider
 import com.moneyplanner.domain.calc.BalanceCalculator
+import com.moneyplanner.domain.calc.BackupHealth
+import com.moneyplanner.domain.calc.BackupHealthCalculator
 import com.moneyplanner.domain.model.Category
 import com.moneyplanner.domain.model.CategoryType
 import com.moneyplanner.domain.model.UserProfile
@@ -70,6 +73,19 @@ class SettingsViewModel @Inject constructor(
             profile = snapshot.profile,
             currentBalance = BalanceCalculator.currentBalance(snapshot),
             backupFolderName = autoBackupManager.folderDisplayName(settings.backupFolderUri),
+            backupHealth = BackupHealthCalculator.assess(
+                lastBackupEpochDay = settings.lastBackupEpochDay,
+                autoBackupConfigured = settings.canAutoBackup,
+                // Counted from the records that would actually be lost, so the warning
+                // stays quiet on an install with almost nothing in it.
+                recordCount = snapshot.expenses.size +
+                    snapshot.incomeTransactions.size +
+                    snapshot.settlements.size +
+                    snapshot.emiPayments.size +
+                    snapshot.billPayments.size +
+                    snapshot.contributions.size,
+                today = snapshot.today
+            ),
             isLoading = false
         )
     }
@@ -291,9 +307,34 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun restoreBackup(uri: Uri) {
+    private val _restorePreview = MutableStateFlow<PendingRestore?>(null)
+    val restorePreview: StateFlow<PendingRestore?> = _restorePreview.asStateFlow()
+
+    /**
+     * Reads the file first and shows what is in it.
+     *
+     * Restoring replaces everything and cannot be undone, so the user sees what they are
+     * swapping in while their current records are still there to compare against.
+     */
+    fun previewRestore(uri: Uri) {
         viewModelScope.launch {
-            _events.value = when (val result = backupManager.importJson(uri)) {
+            when (val preview = backupManager.previewJson(uri)) {
+                is BackupPreview.Readable -> _restorePreview.value = PendingRestore(uri, preview)
+                is BackupPreview.Unreadable ->
+                    _events.value = SettingsEvent.Message(preview.message)
+            }
+        }
+    }
+
+    fun dismissRestorePreview() {
+        _restorePreview.value = null
+    }
+
+    fun confirmRestore() {
+        val pending = _restorePreview.value ?: return
+        _restorePreview.value = null
+        viewModelScope.launch {
+            _events.value = when (val result = backupManager.importJson(pending.uri)) {
                 is RestoreResult.Success ->
                     SettingsEvent.Message("Your backup has been restored.")
                 is RestoreResult.Failure -> SettingsEvent.Message(result.message)
@@ -376,7 +417,14 @@ data class SettingsState(
     val currentBalance: Money = Money.ZERO,
     /** Readable name of the chosen backup folder, or null when none is set. */
     val backupFolderName: String? = null,
+    val backupHealth: BackupHealth? = null,
     val isLoading: Boolean = true
+)
+
+/** A backup the user has chosen, read but not yet applied. */
+data class PendingRestore(
+    val uri: Uri,
+    val preview: BackupPreview.Readable
 )
 
 sealed interface SettingsEvent {
