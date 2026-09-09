@@ -11,6 +11,10 @@ import com.moneyplanner.domain.calc.GoalProgress
 import com.moneyplanner.domain.calc.PersonBalanceSummary
 import com.moneyplanner.domain.calc.RecurrenceCalculator
 import com.moneyplanner.domain.calc.SavingsCalculator
+import com.moneyplanner.domain.calc.ReportsCalculator
+import com.moneyplanner.domain.calc.MonthSummary
+import com.moneyplanner.domain.calc.CategoryComparison
+import com.moneyplanner.domain.calc.AccountFlow
 import com.moneyplanner.domain.calc.SettlementCalculator
 import com.moneyplanner.domain.calc.SpendingAnalyzer
 import com.moneyplanner.domain.model.Frequency
@@ -69,11 +73,24 @@ class ReportsViewModel @Inject constructor(
             .filter { it.isActive && it.frequency == Frequency.MONTHLY }
             .sumOfMoney { it.amount }
 
-        // The six months before the selected one, for the trend block.
+        // The six months up to and including the selected one, for the trend block.
         val trendMonths = (5 downTo 0).map { month.minusMonths(it.toLong()) }
         val trend = trendMonths
             .map { it to SpendingAnalyzer.totalSpendIn(snapshot, it) }
             .filter { it.second.isPositive }
+
+        // Income against spending per month, each category against its own recent
+        // average, and what moved through each account over the same six months.
+        val monthsBack = ReportsCalculator.DEFAULT_TREND_MONTHS
+        val summaries = ReportsCalculator.monthlyTrend(snapshot, monthsBack)
+            .map { row -> if (row.month == month) row.copy(isPartial = row.isPartial) else row }
+        val comparison = ReportsCalculator.categoryComparison(snapshot, month)
+            .filter { it.thisMonth.isPositive || it.hasBaseline }
+        val flows = ReportsCalculator.accountCashFlow(
+            snapshot,
+            from = month.minusMonths((monthsBack - 1).toLong()),
+            to = month
+        ).filter { it.hasActivity }
 
         ReportsState(
             month = month,
@@ -91,6 +108,9 @@ class ReportsViewModel @Inject constructor(
                 .filterNot { it.isSettled },
             goalProgress = SavingsCalculator.allProgress(snapshot),
             monthlyTrend = trend,
+            monthSummaries = summaries,
+            categoryComparison = comparison,
+            accountFlows = flows,
             hasData = snapshot.expenses.isNotEmpty() || snapshot.incomeTransactions.isNotEmpty(),
             isLoading = false
         )
@@ -120,6 +140,12 @@ data class ReportsState(
     val peopleBalances: List<PersonBalanceSummary> = emptyList(),
     val goalProgress: List<GoalProgress> = emptyList(),
     val monthlyTrend: List<Pair<YearMonth, Money>> = emptyList(),
+    /** Income against spending, month by month. */
+    val monthSummaries: List<MonthSummary> = emptyList(),
+    /** Each category this month against its own recent average. */
+    val categoryComparison: List<CategoryComparison> = emptyList(),
+    /** What moved through each account over the trend window. */
+    val accountFlows: List<AccountFlow> = emptyList(),
     val hasData: Boolean = false,
     val isLoading: Boolean = true
 )

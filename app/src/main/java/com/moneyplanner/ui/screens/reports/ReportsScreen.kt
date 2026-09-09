@@ -43,7 +43,9 @@ import com.moneyplanner.ui.components.EmptyState
 import com.moneyplanner.ui.components.GoalProgressBar
 import com.moneyplanner.ui.components.LoadingState
 import com.moneyplanner.ui.components.MoneyText
+import com.moneyplanner.ui.components.InOutBar
 import com.moneyplanner.ui.components.SectionCard
+import com.moneyplanner.ui.components.StatusPill
 import com.moneyplanner.ui.components.SummaryRow
 import com.moneyplanner.ui.components.parseColorOrDefault
 import com.moneyplanner.ui.screens.expenses.MonthSelector
@@ -274,6 +276,164 @@ fun ReportsScreen(
                                     fraction = progress.progressFraction,
                                     label = "${progress.goal.name} is " +
                                         "${progress.progressPercent} percent funded"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Income against spending, month by month. Spending alone says what happened;
+            // set beside income it says whether the month worked.
+            if (state.monthSummaries.any { it.income.isPositive || it.spent.isPositive }) {
+                item {
+                    SectionCard(
+                        title = "Month by month",
+                        subtitle = "What came in against what went out"
+                    ) {
+                        val peak = state.monthSummaries
+                            .flatMap { listOf(it.income.paise, it.spent.paise) }
+                            .maxOrNull()?.coerceAtLeast(1L) ?: 1L
+
+                        state.monthSummaries.forEach { row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    DateUtil.formatMonthShort(row.month),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.width(56.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    CategoryBar(
+                                        fraction = row.income.paise.toFloat() / peak,
+                                        color = colors.positive,
+                                        description = "In: " + IndianFormat.format(row.income)
+                                    )
+                                    Spacer(Modifier.height(3.dp))
+                                    CategoryBar(
+                                        fraction = row.spent.paise.toFloat() / peak,
+                                        color = colors.negative,
+                                        description = "Out: " + IndianFormat.format(row.spent)
+                                    )
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column(horizontalAlignment = Alignment.End) {
+                                    MoneyText(
+                                        money = row.net,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        colorBySign = true,
+                                        showSign = true,
+                                        compact = true
+                                    )
+                                    // A month still running is not comparable with the
+                                    // finished ones beside it, so it says so rather than
+                                    // looking like a sudden collapse in spending.
+                                    if (row.isPartial) {
+                                        Text(
+                                            "so far",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Each category against its own recent average, not against other categories:
+            // what counts as a lot of grocery spending is entirely personal.
+            if (state.categoryComparison.any { it.hasBaseline }) {
+                item {
+                    SectionCard(
+                        title = "Against your usual",
+                        subtitle = "This month compared with your own recent average"
+                    ) {
+                        state.categoryComparison.filter { it.hasBaseline }.forEach { row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        row.categoryName,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Text(
+                                        IndianFormat.format(row.thisMonth) + " against " +
+                                            IndianFormat.format(row.baseline) + " usual",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                row.changePercent?.let { percent ->
+                                    StatusPill(
+                                        text = if (percent >= 0) "+" + percent + "%"
+                                        else percent.toString() + "%",
+                                        containerColor = when {
+                                            percent >= 25 -> colors.warningContainer
+                                            percent <= -25 -> colors.positiveContainer
+                                            else -> MaterialTheme.colorScheme.surfaceVariant
+                                        },
+                                        contentColor = when {
+                                            percent >= 25 -> colors.onWarningContainer
+                                            percent <= -25 -> colors.positive
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Where the money actually moved. Transfers count here: from one account's
+            // point of view, money sent to another really did leave it.
+            if (state.accountFlows.isNotEmpty()) {
+                item {
+                    SectionCard(
+                        title = "By account",
+                        subtitle = "What flowed through each one over these months"
+                    ) {
+                        state.accountFlows.forEach { flow ->
+                            Column(modifier = Modifier.padding(vertical = 6.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        flow.account.name,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    MoneyText(
+                                        money = flow.closingBalance,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                val through = flow.moneyIn.paise + flow.moneyOut.paise
+                                InOutBar(
+                                    inflowFraction = if (through <= 0L) 0f
+                                    else flow.moneyIn.paise.toFloat() / through,
+                                    description = IndianFormat.format(flow.moneyIn) +
+                                        " in against " + IndianFormat.format(flow.moneyOut) +
+                                        " out"
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    IndianFormat.format(flow.moneyIn) + " in, " +
+                                        IndianFormat.format(flow.moneyOut) + " out",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
