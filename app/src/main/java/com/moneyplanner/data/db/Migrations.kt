@@ -178,5 +178,29 @@ object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+    /**
+     * Budgets gain rollover and their own alert threshold.
+     *
+     * Purely additive, with defaults that reproduce the previous behaviour exactly: no
+     * rollover, and the 80 percent warning that used to be a constant in the calculator.
+     * An existing budget therefore behaves on upgrade precisely as it did before.
+     */
+    val MIGRATION_5_6 = object : Migration(5, 6) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE `budgets` ADD COLUMN `rolloverEnabled` INTEGER NOT NULL DEFAULT 0"
+            )
+            db.execSQL(
+                "ALTER TABLE `budgets` ADD COLUMN `alertThresholdPercent` INTEGER NOT NULL DEFAULT 80"
+            )
+        }
+    }
+
+    val ALL = arrayOf(
+        MIGRATION_1_2,
+        MIGRATION_2_3,
+        MIGRATION_3_4,
+        MIGRATION_4_5,
+        MIGRATION_5_6
+    )
 }

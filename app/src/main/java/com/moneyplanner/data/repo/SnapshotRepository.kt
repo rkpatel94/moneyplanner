@@ -153,10 +153,26 @@ class SnapshotRepository @Inject constructor(
         flowBundle,
         peopleBundle,
         obligationBundle,
-        commitmentBundle
-    ) { profileData, flowData, peopleData, obligations, commitments ->
+        commitmentBundle,
+        // The date is an input like any other. Without it the snapshot only rebuilds when
+        // a record changes, so an app left open overnight keeps yesterday's idea of what
+        // is overdue and how much of the month is left to project.
+        today.todayFlow
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        val profileData = values[0] as ProfileBundle
+        @Suppress("UNCHECKED_CAST")
+        val flowData = values[1] as FlowBundle
+        @Suppress("UNCHECKED_CAST")
+        val peopleData = values[2] as PeopleBundle
+        @Suppress("UNCHECKED_CAST")
+        val obligations = values[3] as ObligationBundle
+        @Suppress("UNCHECKED_CAST")
+        val commitments = values[4] as CommitmentBundle
+        val currentDate = values[5] as java.time.LocalDate
+
         FinancialSnapshot(
-            today = today.today(),
+            today = currentDate,
             profile = profileData.profile,
             accounts = profileData.accounts,
             adjustments = profileData.adjustments,

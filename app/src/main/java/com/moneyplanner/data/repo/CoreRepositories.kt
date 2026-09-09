@@ -1,5 +1,10 @@
 package com.moneyplanner.data.repo
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.data.db.DefaultData
 import com.moneyplanner.data.db.dao.CategoryDao
@@ -21,20 +26,95 @@ import com.moneyplanner.domain.model.FamilyMember
 import com.moneyplanner.domain.model.Relation
 import com.moneyplanner.domain.model.UserProfile
 import com.moneyplanner.domain.model.Vehicle
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.Duration
+import java.time.LocalDateTime
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /** Supplies the current date, so date-dependent behaviour can be pinned in tests. */
 interface TodayProvider {
     fun today(): LocalDate
+
+    /**
+     * The current date, re-emitted whenever it changes.
+     *
+     * Everything dated in this app is relative to today: what is overdue, what is still
+     * expected this month, how many days of spending remain to project. A phone left on
+     * the dashboard overnight would otherwise keep yesterday's answer until something else
+     * happened to rebuild the snapshot, quietly showing a payment as upcoming on the
+     * morning it became overdue.
+     */
+    val todayFlow: Flow<LocalDate>
 }
 
+/**
+ * The real clock.
+ *
+ * Emits at every midnight, and also whenever the system says the clock or the time zone
+ * moved. The second half matters more than it looks: a flight across time zones, or the
+ * user correcting the date, changes what "today" means without any midnight passing, and a
+ * timer alone would not notice until the next one.
+ */
 @Singleton
-class SystemTodayProvider @Inject constructor() : TodayProvider {
+class SystemTodayProvider @Inject constructor(
+    @ApplicationContext private val context: Context
+) : TodayProvider {
+
     override fun today(): LocalDate = LocalDate.now()
+
+    override val todayFlow: Flow<LocalDate> = callbackFlow {
+        trySend(LocalDate.now())
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                trySend(LocalDate.now())
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_DATE_CHANGED)
+            addAction(Intent.ACTION_TIME_CHANGED)
+            addAction(Intent.ACTION_TIMEZONE_CHANGED)
+        }
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+
+        // ACTION_DATE_CHANGED is not delivered reliably on every device, so the timer is
+        // the guarantee rather than the optimisation. It sleeps until just after the next
+        // midnight and then recomputes, so a doze that overshoots still wakes to the
+        // right date rather than to a stale one.
+        val ticker = launch {
+            while (isActive) {
+                val now = LocalDateTime.now()
+                val nextMidnight = now.toLocalDate().plusDays(1).atStartOfDay()
+                val wait = Duration.between(now, nextMidnight).toMillis().coerceAtLeast(0L)
+                // A second past the boundary, so the date has certainly rolled over by
+                // the time it is read.
+                delay(wait + 1_000L)
+                trySend(LocalDate.now())
+            }
+        }
+
+        awaitClose {
+            ticker.cancel()
+            runCatching { context.unregisterReceiver(receiver) }
+        }
+    }
+        // Only a real change of date is worth rebuilding everything downstream for.
+        .distinctUntilChanged()
 }
 
 @Singleton

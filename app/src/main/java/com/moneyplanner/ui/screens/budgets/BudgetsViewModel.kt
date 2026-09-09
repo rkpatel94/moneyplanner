@@ -3,6 +3,7 @@ package com.moneyplanner.ui.screens.budgets
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.moneyplanner.core.money.Money
+import com.moneyplanner.domain.model.Budget
 import com.moneyplanner.data.repo.BudgetRepository
 import com.moneyplanner.data.repo.SnapshotRepository
 import com.moneyplanner.domain.calc.BudgetCalculator
@@ -44,8 +45,20 @@ class BudgetsViewModel @Inject constructor(
         initialValue = BudgetsState()
     )
 
-    fun setBudget(categoryId: Long?, amount: Money) {
-        viewModelScope.launch { budgetRepository.setBudget(categoryId, amount) }
+    fun setBudget(
+        categoryId: Long?,
+        amount: Money,
+        rolloverEnabled: Boolean = false,
+        alertThresholdPercent: Int = Budget.DEFAULT_ALERT_THRESHOLD
+    ) {
+        viewModelScope.launch {
+            budgetRepository.setBudget(
+                categoryId = categoryId,
+                amount = amount,
+                rolloverEnabled = rolloverEnabled,
+                alertThresholdPercent = alertThresholdPercent
+            )
+        }
     }
 
     fun delete(id: Long) {

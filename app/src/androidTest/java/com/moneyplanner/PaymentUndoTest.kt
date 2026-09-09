@@ -11,6 +11,7 @@ import com.moneyplanner.data.repo.BillRepository
 import com.moneyplanner.data.repo.EmiRepository
 import com.moneyplanner.data.repo.PeopleRepository
 import com.moneyplanner.data.repo.TodayProvider
+import kotlinx.coroutines.flow.flowOf
 import com.moneyplanner.domain.calc.SplitParticipant
 import com.moneyplanner.domain.model.AnnualExpense
 import com.moneyplanner.domain.model.BillAmountType
@@ -55,6 +56,7 @@ class PaymentUndoTest {
 
     private val today = object : TodayProvider {
         override fun today(): LocalDate = LocalDate.of(2026, 8, 18)
+        override val todayFlow = flowOf(LocalDate.of(2026, 8, 18))
     }
 
     @Before

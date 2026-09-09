@@ -27,15 +27,33 @@ class BudgetRepository @Inject constructor(
      * The same applies to the single overall budget, which is identified by a null
      * category and so cannot be caught by a unique index.
      */
-    suspend fun setBudget(categoryId: Long?, amount: Money): Long {
+    suspend fun setBudget(
+        categoryId: Long?,
+        amount: Money,
+        rolloverEnabled: Boolean = false,
+        alertThresholdPercent: Int = Budget.DEFAULT_ALERT_THRESHOLD
+    ): Long {
+        val threshold = alertThresholdPercent.coerceIn(1, 100)
         val existing = dao.findForCategory(categoryId)
         return if (existing == null) {
             dao.insert(
-                Budget(id = 0, categoryId = categoryId, amount = amount)
-                    .toEntity(today.today())
+                Budget(
+                    id = 0,
+                    categoryId = categoryId,
+                    amount = amount,
+                    rolloverEnabled = rolloverEnabled,
+                    alertThresholdPercent = threshold
+                ).toEntity(today.today())
             )
         } else {
-            dao.update(existing.copy(amountPaise = amount.paise, isActive = true))
+            dao.update(
+                existing.copy(
+                    amountPaise = amount.paise,
+                    isActive = true,
+                    rolloverEnabled = rolloverEnabled,
+                    alertThresholdPercent = threshold
+                )
+            )
             existing.id
         }
     }

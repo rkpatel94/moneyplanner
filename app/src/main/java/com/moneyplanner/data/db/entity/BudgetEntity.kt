@@ -37,5 +37,9 @@ data class BudgetEntity(
     val amountPaise: Long,
     val isActive: Boolean = true,
     val notes: String = "",
-    val createdAtEpochDay: Long = 0L
+    val createdAtEpochDay: Long = 0L,
+    /** Whether money unspent in a month raises the following month's limit. */
+    val rolloverEnabled: Boolean = false,
+    /** How far through the limit counts as close to it, as a percentage. */
+    val alertThresholdPercent: Int = 80
 )

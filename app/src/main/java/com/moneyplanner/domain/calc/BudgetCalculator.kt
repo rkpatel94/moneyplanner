@@ -29,26 +29,32 @@ object BudgetCalculator {
     /** Past this share of the limit a budget is treated as close to the edge. */
     const val NEAR_LIMIT_FRACTION = 0.8f
 
+    /**
+     * How far back rollover will look.
+     *
+     * Each month's carry depends on the one before it, so the chain has to stop somewhere.
+     * A year is well past the point where an unspent month is still meaningful, and it
+     * bounds the work regardless of how long the budget has existed.
+     */
+    const val MAX_ROLLOVER_MONTHS = 12
+
     fun statusFor(
         budget: Budget,
         snapshot: FinancialSnapshot,
         month: YearMonth = snapshot.currentMonth
     ): BudgetStatus {
-        val expenses = SpendingAnalyzer.expensesIn(snapshot, month)
-        val relevant = if (budget.categoryId == null) {
-            expenses
-        } else {
-            expenses.filter { it.categoryId == budget.categoryId }
-        }
+        val spent = spentIn(budget, snapshot, month)
+        val carried = carriedInto(budget, snapshot, month)
+        val limit = budget.amount + carried
 
-        val spent = relevant.sumOfMoney { it.amount }
-        val remaining = (budget.amount - spent).coerceAtLeastZero()
-        val overspend = (spent - budget.amount).coerceAtLeastZero()
+        val remaining = (limit - spent).coerceAtLeastZero()
+        val overspend = (spent - limit).coerceAtLeastZero()
 
-        val fraction = if (budget.amount.paise <= 0L) 0f
-        else (spent.paise.toDouble() / budget.amount.paise).toFloat()
+        val fraction = if (limit.paise <= 0L) 0f
+        else (spent.paise.toDouble() / limit.paise).toFloat()
 
         val projected = projectMonthEnd(spent, snapshot.today, month)
+        val relevant = expensesFor(budget, snapshot, month)
 
         return BudgetStatus(
             budget = budget,
@@ -63,13 +69,55 @@ object BudgetCalculator {
             projectedSpend = projected,
             transactionCount = relevant.size,
             dailyAllowanceLeft = dailyAllowance(remaining, snapshot.today, month),
+            carriedOver = carried,
+            effectiveLimit = limit,
             state = when {
-                spent > budget.amount -> BudgetState.OVER
-                fraction >= NEAR_LIMIT_FRACTION -> BudgetState.NEAR_LIMIT
-                projected > budget.amount -> BudgetState.PROJECTED_OVER
+                spent > limit -> BudgetState.OVER
+                fraction >= budget.alertFraction -> BudgetState.NEAR_LIMIT
+                projected > limit -> BudgetState.PROJECTED_OVER
                 else -> BudgetState.ON_TRACK
             }
         )
+    }
+
+    private fun expensesFor(budget: Budget, snapshot: FinancialSnapshot, month: YearMonth) =
+        SpendingAnalyzer.expensesIn(snapshot, month).let { expenses ->
+            if (budget.categoryId == null) expenses
+            else expenses.filter { it.categoryId == budget.categoryId }
+        }
+
+    private fun spentIn(budget: Budget, snapshot: FinancialSnapshot, month: YearMonth): Money =
+        expensesFor(budget, snapshot, month).sumOfMoney { it.amount }
+
+    /**
+     * What an unspent run of earlier months adds to this month's limit.
+     *
+     * Walks forward from the oldest month still in range so each month's carry can build
+     * on the one before it, which is what makes two quiet months worth more than one. A
+     * month that went over contributes nothing rather than a negative, so overspending
+     * costs the allowance it used and no more.
+     *
+     * Nothing before the budget was created counts: a budget set up today has no history
+     * of restraint to be rewarded for.
+     */
+    fun carriedInto(budget: Budget, snapshot: FinancialSnapshot, month: YearMonth): Money {
+        if (!budget.rolloverEnabled) return Money.ZERO
+
+        val createdMonth = budget.createdAt?.let { YearMonth.from(it) }
+        val earliest = month.minusMonths(MAX_ROLLOVER_MONTHS.toLong()).let { limit ->
+            if (createdMonth != null && createdMonth.isAfter(limit)) createdMonth else limit
+        }
+        if (!earliest.isBefore(month)) return Money.ZERO
+
+        var carried = Money.ZERO
+        var cursor = earliest
+        while (cursor.isBefore(month)) {
+            val limit = budget.amount + carried
+            val spent = spentIn(budget, snapshot, cursor)
+            carried = (limit - spent).coerceAtLeastZero()
+            cursor = cursor.plusMonths(1)
+        }
+        return carried
     }
 
     fun allStatuses(
@@ -133,12 +181,23 @@ data class BudgetStatus(
     val projectedSpend: Money,
     val transactionCount: Int,
     val dailyAllowanceLeft: Money,
+    /** Unspent allowance brought forward from earlier months. Zero without rollover. */
+    val carriedOver: Money = Money.ZERO,
+    /** The limit actually in force this month: the budget plus anything carried in. */
+    val effectiveLimit: Money = Money.ZERO,
     val state: BudgetState
 ) {
+    val hasCarryOver: Boolean get() = carriedOver.isPositive
     val usedPercent: Int get() = (usedFraction * 100).toInt()
     val isOver: Boolean get() = state == BudgetState.OVER
 
-    /** A plain sentence describing where this budget stands. */
+    /**
+     * A plain sentence describing where this budget stands.
+     *
+     * A carried-over allowance is named rather than folded silently into the remaining
+     * figure, because a limit that is suddenly larger than the one the user set is
+     * confusing until you know why.
+     */
     fun summary(): String = when (state) {
         BudgetState.OVER ->
             "Over by ${com.moneyplanner.core.money.IndianFormat.format(overspendAmount)}"

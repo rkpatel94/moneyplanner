@@ -318,9 +318,27 @@ data class Budget(
     val categoryId: Long?,
     val amount: Money,
     val isActive: Boolean = true,
-    val notes: String = ""
+    val notes: String = "",
+    /**
+     * Whether money left unspent in a month raises the next month's limit.
+     *
+     * Only unspent money carries. An overspend is not carried as a debt, because that
+     * turns one bad month into a limit the following month cannot meet either, and a
+     * budget nobody can hit is one they stop reading.
+     */
+    val rolloverEnabled: Boolean = false,
+    /** How far through the limit counts as close to it. */
+    val alertThresholdPercent: Int = DEFAULT_ALERT_THRESHOLD,
+    /** Set when the budget was created, so rollover cannot reach back before it existed. */
+    val createdAt: LocalDate? = null
 ) {
     val isOverall: Boolean get() = categoryId == null
+
+    val alertFraction: Float get() = alertThresholdPercent.coerceIn(1, 100) / 100f
+
+    companion object {
+        const val DEFAULT_ALERT_THRESHOLD = 80
+    }
 }
 
 data class SavingsContribution(

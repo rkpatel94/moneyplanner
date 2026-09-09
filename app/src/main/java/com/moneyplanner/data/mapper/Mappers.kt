@@ -575,7 +575,10 @@ fun BudgetEntity.toDomain() = Budget(
     categoryId = categoryId,
     amount = Money(amountPaise),
     isActive = isActive,
-    notes = notes
+    notes = notes,
+    rolloverEnabled = rolloverEnabled,
+    alertThresholdPercent = alertThresholdPercent,
+    createdAt = createdAtEpochDay.takeIf { it > 0L }?.let { LocalDate.ofEpochDay(it) }
 )
 
 fun Budget.toEntity(createdAt: LocalDate) = BudgetEntity(
@@ -584,5 +587,8 @@ fun Budget.toEntity(createdAt: LocalDate) = BudgetEntity(
     amountPaise = amount.paise,
     isActive = isActive,
     notes = notes,
-    createdAtEpochDay = createdAt.toEpoch()
+    // The original creation date survives an edit; only a genuinely new budget takes today.
+    createdAtEpochDay = (this.createdAt ?: createdAt).toEpoch(),
+    rolloverEnabled = rolloverEnabled,
+    alertThresholdPercent = alertThresholdPercent
 )

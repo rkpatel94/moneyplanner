@@ -32,6 +32,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,12 +44,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moneyplanner.core.money.IndianFormat
 import com.moneyplanner.core.money.Money
+import com.moneyplanner.domain.model.Budget
 import com.moneyplanner.core.time.DateUtil
 import com.moneyplanner.domain.calc.BudgetState
 import com.moneyplanner.domain.calc.BudgetStatus
 import com.moneyplanner.ui.components.AmountField
+import com.moneyplanner.ui.components.ChipSelector
 import com.moneyplanner.ui.components.ConfirmDialog
 import com.moneyplanner.ui.components.DropdownField
+import com.moneyplanner.ui.components.SwitchRow
 import com.moneyplanner.ui.components.EmptyState
 import com.moneyplanner.ui.components.GoalProgressBar
 import com.moneyplanner.ui.components.MoneyText
@@ -147,8 +151,8 @@ fun BudgetsScreen(
         BudgetEditorDialog(
             categories = state.availableCategories,
             onDismiss = { showEditor = false },
-            onSave = { categoryId, amount ->
-                viewModel.setBudget(categoryId, amount)
+            onSave = { categoryId, amount, rollover, threshold ->
+                viewModel.setBudget(categoryId, amount, rollover, threshold)
                 showEditor = false
             }
         )
@@ -239,6 +243,17 @@ private fun BudgetCard(status: BudgetStatus, onDelete: () -> Unit) {
             )
         }
 
+        // A limit larger than the one the user set needs explaining, or it reads as a bug.
+        if (status.hasCarryOver) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "${IndianFormat.format(status.carriedOver)} carried over, so this month's " +
+                    "limit is ${IndianFormat.format(status.effectiveLimit)}.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.positive
+            )
+        }
+
         if (status.state == BudgetState.PROJECTED_OVER) {
             Spacer(Modifier.height(8.dp))
             Text(
@@ -264,10 +279,12 @@ private fun BudgetCard(status: BudgetStatus, onDelete: () -> Unit) {
 private fun BudgetEditorDialog(
     categories: List<com.moneyplanner.domain.model.Category>,
     onDismiss: () -> Unit,
-    onSave: (Long?, Money) -> Unit
+    onSave: (Long?, Money, Boolean, Int) -> Unit
 ) {
     var categoryId by remember { mutableStateOf<Long?>(null) }
     var amountText by remember { mutableStateOf("") }
+    var rollover by remember { mutableStateOf(false) }
+    var threshold by remember { mutableIntStateOf(Budget.DEFAULT_ALERT_THRESHOLD) }
     val amount = Money.parseOrNull(amountText)
 
     AlertDialog(
@@ -291,6 +308,30 @@ private fun BudgetEditorDialog(
                     label = "Monthly limit",
                     imeAction = ImeAction.Done
                 )
+                ChipSelector(
+                    label = "Warn me at",
+                    options = listOf(50, 70, 80, 90),
+                    selected = threshold,
+                    onSelect = { threshold = it },
+                    optionLabel = { "$it%" }
+                )
+
+                SwitchRow(
+                    label = "Carry unspent money forward",
+                    checked = rollover,
+                    onCheckedChange = { rollover = it }
+                )
+                Text(
+                    if (rollover) {
+                        "Whatever you do not spend in a month raises the next month's " +
+                            "limit. Going over does not carry the other way."
+                    } else {
+                        "Each month starts at the same limit, whatever last month did."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
                 Text(
                     "Setting a limit for something that already has one replaces it.",
                     style = MaterialTheme.typography.bodySmall,
@@ -300,7 +341,7 @@ private fun BudgetEditorDialog(
         },
         confirmButton = {
             TextButton(
-                onClick = { amount?.let { onSave(categoryId, it) } },
+                onClick = { amount?.let { onSave(categoryId, it, rollover, threshold) } },
                 enabled = amount?.isPositive == true
             ) { Text("Save") }
         },
