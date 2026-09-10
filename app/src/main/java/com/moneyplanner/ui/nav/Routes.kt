@@ -99,6 +99,13 @@ object Routes {
     // backup are sections within it and have no routes of their own.
     const val SETTINGS = "settings"
     const val CATEGORIES = "settings/categories"
+
+    /**
+     * Cloud backup is its own screen rather than a section of Settings: it has a sign-in,
+     * a list and two destructive actions, which is more than a card can carry honestly.
+     * Only the cloud flavour links to it.
+     */
+    const val CLOUD_BACKUP = "settings/cloud"
     const val ACCOUNTS = "settings/accounts?editTransfer={transferId}"
     fun accounts() = "settings/accounts"
 

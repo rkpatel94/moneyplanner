@@ -37,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.core.time.DateUtil
@@ -107,7 +108,12 @@ fun LabelledTextField(
     isError: Boolean = false,
     errorMessage: String? = null,
     enabled: Boolean = true,
-    supportingText: String? = null
+    supportingText: String? = null,
+    /**
+     * Masking, for passwords. A password keyboard type alone still paints the characters
+     * on screen, which is not what anyone typing one expects.
+     */
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     OutlinedTextField(
         value = value,
@@ -117,6 +123,7 @@ fun LabelledTextField(
         singleLine = singleLine,
         enabled = enabled,
         isError = isError,
+        visualTransformation = visualTransformation,
         minLines = if (singleLine) 1 else 3,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
         supportingText = when {

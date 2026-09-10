@@ -81,7 +81,14 @@ class BackupManager @Inject constructor(
 
     // ---- JSON backup -------------------------------------------------------------
 
-    suspend fun exportJson(today: LocalDate): File = withContext(io) {
+    /**
+     * The complete backup as text.
+     *
+     * Split out from [exportJson] so the cloud uploader sends exactly the bytes the local
+     * backup writes. One format, one code path: a cloud copy that drifted from the file
+     * format would restore into a subtly different app.
+     */
+    suspend fun buildJson(today: LocalDate): String = withContext(io) {
         val root = JSONObject().apply {
             put("formatVersion", FORMAT_VERSION)
             put("exportedOn", today.toString())
@@ -450,8 +457,12 @@ class BackupManager @Inject constructor(
             )
         }
 
+        root.toString(2)
+    }
+
+    suspend fun exportJson(today: LocalDate): File = withContext(io) {
         val file = File(exportsDir(), "money-planner-backup-${stamp(today)}.json")
-        file.writeText(root.toString(2))
+        file.writeText(buildJson(today))
         file
     }
 
@@ -478,7 +489,16 @@ class BackupManager @Inject constructor(
         } catch (error: Exception) {
             return@withContext BackupPreview.Unreadable("The file could not be read.")
         }
+        previewText(text)
+    }
 
+    /**
+     * The same inspection, on text that came from anywhere.
+     *
+     * A cloud download deserves the same look-before-you-leap as a file the user picked:
+     * restoring replaces every record either way.
+     */
+    suspend fun previewText(text: String): BackupPreview = withContext(io) {
         val root = try {
             JSONObject(text)
         } catch (error: Exception) {
@@ -532,7 +552,11 @@ class BackupManager @Inject constructor(
         } catch (error: Exception) {
             return@withContext RestoreResult.Failure("The file could not be read.")
         }
+        importText(text)
+    }
 
+    /** Restores from text, whether it came off the device or out of the cloud. */
+    suspend fun importText(text: String): RestoreResult = withContext(io) {
         val root = try {
             JSONObject(text)
         } catch (error: Exception) {

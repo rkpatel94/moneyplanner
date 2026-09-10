@@ -4,18 +4,45 @@ An offline-first Android app for Indian household finances. It does not only rec
 was spent — it projects what the user will actually have left in each of the coming months,
 built entirely from figures they have entered themselves.
 
+## Two builds of the same app
+
+The app ships as two product flavours on a `connectivity` dimension. They share every line
+of feature code and differ only in whether they can reach a network at all.
+
+| Flavour | Application id | Network | Cloud backup |
+| --- | --- | --- | --- |
+| `offline` (default) | `com.moneyplanner` | No `INTERNET` permission in the merged manifest | Not present |
+| `cloud` | `com.moneyplanner.cloud` | Holds `INTERNET` | Firebase Auth + Storage |
+
+The offline flavour is the original app and keeps its guarantee intact: the promise is
+checkable in the merged manifest rather than taken on trust. Its source set has no Firebase
+dependency, so nothing can reintroduce one through a transitive.
+
+Both can sit on one device at once, which is what the id suffix is for.
+
 ## Building
 
 ```bash
-./gradlew assembleDebug
+./gradlew assembleOfflineDebug
 ```
 
 ```bash
-./gradlew testDebugUnitTest
+./gradlew assembleCloudDebug
 ```
 
-Requires JDK 17+ (the Android Studio bundled JBR works) and Android SDK platform 35.
-`local.properties` must point at your SDK.
+```bash
+./gradlew testOfflineDebugUnitTest
+```
+
+Requires JDK 17+ and Android SDK platform 35. `local.properties` must point at your SDK.
+
+The Android Studio bundled JBR is fine in the IDE, but some installations ship an
+incomplete `lib/` that aborts a command-line Gradle run before it starts. If
+`./gradlew` exits immediately with a JVM error, point `JAVA_HOME` at a full JDK:
+
+```bash
+export JAVA_HOME="/c/Program Files/Java/jdk-20"
+```
 
 | Item | Value |
 | --- | --- |
@@ -29,17 +56,22 @@ Requires JDK 17+ (the Android Studio bundled JBR works) and Android SDK platform
 
 ## Privacy posture
 
-The app declares **no `INTERNET` permission**, so it cannot phone home even by accident.
-There is no account, no sync, no analytics. `allowBackup` is off and cloud/device-transfer
-backup rules exclude every domain, so financial records are not swept into a Google
-backup. The only way data leaves the device is the user explicitly exporting it through
-the system share sheet.
+**The `offline` flavour** declares **no `INTERNET` permission**, so it cannot phone home
+even by accident. There is no account, no sync, no analytics. `allowBackup` is off and
+cloud/device-transfer backup rules exclude every domain, so financial records are not swept
+into a Google backup. The only way data leaves the device is the user explicitly exporting
+it through the system share sheet.
+
+**The `cloud` flavour** holds `INTERNET` and can therefore make a weaker promise, stated
+honestly on its own About card: records live on the device, there is still no analytics and
+no tracking, and the only thing that ever leaves the phone is a backup the user asked it to
+upload. Nothing syncs on its own in either direction.
 
 The app asks for no SMS access at all. Bank alerts are imported by pasting them, which
 costs a copy and a tap and keeps the promise that an app holding this much financial
 detail never reads your messages.
 
-The merged manifest declares exactly these permissions:
+The offline flavour's merged manifest declares exactly these permissions:
 
 | Permission | Declared by | Why |
 | --- | --- | --- |
@@ -49,11 +81,65 @@ The merged manifest declares exactly these permissions:
 | `USE_FINGERPRINT` | androidx.biometric | Legacy fallback for the above. |
 | `WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` | WorkManager | Pulled in transitively by the scheduler. `ACCESS_NETWORK_STATE` only reads connectivity status; it does not grant network access. |
 
+The cloud flavour adds exactly two: `INTERNET`, and `READ_GSERVICES` from Play Services.
+
 Verify for yourself at any time:
 
 ```bash
-grep -o 'uses-permission[^/]*' app/build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml
+./gradlew processOfflineReleaseMainManifest
 ```
+
+```bash
+grep -o 'uses-permission[^/]*' app/build/intermediates/merged_manifest/offlineRelease/processOfflineReleaseMainManifest/AndroidManifest.xml
+```
+
+## Cloud backup
+
+Only in the `cloud` flavour, and only after a Firebase project is attached to the build.
+
+**It is backup, not sync.** Each device uploads whole snapshots named for itself and the
+moment they were taken, the ten newest per device are kept, and restoring is an explicit
+act after a preview that names what is in the file. There is deliberately no automatic
+merge: last-write-wins on a ledger loses records without telling anyone, which is the exact
+failure the rest of this app is built to avoid. Two phones editing the same week therefore
+produce two snapshots, and the user chooses.
+
+Storage rather than Firestore, because the payload is the same backup document the local
+export already writes. A few years of records runs past Firestore's one-megabyte document
+limit and has no business being queried field by field.
+
+Nothing outside the two flavour source sets knows Firebase exists. The app talks to a
+`CloudSync` interface; the offline flavour binds an implementation that reports itself
+unavailable and refuses every call, the cloud flavour one backed by Auth and Storage.
+
+### Attaching a Firebase project
+
+The build works without one — the offline flavour is unaffected and the cloud flavour
+compiles and reports itself as not configured rather than crashing. To make it work:
+
+1. Create a project in the [Firebase console](https://console.firebase.google.com).
+2. Add an Android app with the package name **`com.moneyplanner.cloud`** (note the suffix).
+3. Under **Authentication → Sign-in method**, enable **Email/Password**.
+4. Create a **Storage** bucket.
+5. Download `google-services.json` and put it at `app/src/cloud/google-services.json`. It
+   is git-ignored: not a secret, but it names your project and should not travel with a
+   clone.
+6. Set storage rules so each account can reach only its own folder:
+
+```
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /backups/{userId}/{file} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```
+
+Step 6 is the one that matters. The upload path is `backups/{uid}/...` precisely so a rule
+keyed on `{uid}` is all that stands between accounts, and without it every signed-in user
+could read every other user's ledger.
 
 ## Design system
 
@@ -71,8 +157,8 @@ folder is not part of this repository; the tokens it specified live in `ui/theme
 | Semantic | Emerald `#065F46`, Amber `#B45309`, Rose `#BE123C` | `MoneyColors` |
 | Type | Inter 400/500/600/700 | `Type.kt` |
 
-**Inter is bundled**, not fetched — the app has no internet permission, so a downloadable
-font would never arrive. It ships as the variable font and each weight is derived from the
+**Inter is bundled**, not fetched — the offline flavour has no internet permission, so a
+downloadable font would never arrive there. It ships as the variable font and each weight is derived from the
 `wght` axis, which adds ~400 KB to the release APK (2.8 MB → 3.2 MB). The SIL Open Font
 License is included at `assets/inter_OFL.txt` as redistribution requires.
 
@@ -126,8 +212,12 @@ matches it says so and lists what it can answer rather than guessing.
 **Receipt scanning is not built.** It needs ML Kit, which pulls `INTERNET` into the merged
 manifest through its Play Services dependencies — even though the OCR model itself runs
 on-device. Rather than quietly weaken the offline guarantee, the choice was put to the
-user, who chose to keep the app fully offline. Verified: the shipped release manifest
-still has no `INTERNET` permission.
+user, who chose to keep the app fully offline. Verified: the offline flavour's release
+manifest still has no `INTERNET` permission.
+
+Cloud backup arrived later and was given a flavour of its own precisely so that answer
+could stand. Adding the network to every build was the thing worth avoiding, not the
+network itself.
 
 31 further unit tests cover the parser and the assistant, including that every
 suggestion the assistant offers is one it can actually answer.
@@ -500,12 +590,16 @@ reconciliation adjustment.
 
 ## Tests
 
-377 JVM unit tests, all passing, covering every calculator plus the voice parser,
+385 JVM unit tests, all passing, covering every calculator plus the voice parser,
 the bank SMS parser, the assistant, budgets, runway, prepayment and insights:
 
 ```bash
-./gradlew testDebugUnitTest
+./gradlew testOfflineDebugUnitTest
 ```
+
+They run against the offline flavour because everything they test lives in the shared
+source set. Nothing in the suite needs a network, and the flavour that provably cannot
+reach one is the honest place to prove it.
 
 They pin the edge cases that break naive implementations: partial payments, overpayments
 that push a balance past zero, missed installments, deleted and edited records,
@@ -522,14 +616,14 @@ restrict constraints, restore ordering), per-period payment undo, and replaying 
 databases through every migration. All 15 pass on an API 37 emulator:
 
 ```bash
-./gradlew connectedDebugAndroidTest
+./gradlew connectedOfflineDebugAndroidTest
 ```
 
 The exported schemas are registered as `androidTest` assets, because
 `MigrationTestHelper` reads them from the test APK rather than from disk. Without that the
 four migration tests fail on a missing file before they can test anything, which is how
-they sat unrun for so long. `connectedDebugAndroidTest` also needs network on its first
-run to fetch the test platform, so it cannot be run `--offline` from cold.
+they sat unrun for so long. The task also needs network on its first run to fetch the
+test platform, so it cannot be run `--offline` from cold.
 
 > `JAVA_HOME` must point at a complete JDK 17+. If it points at an Android Studio bundled
 > runtime whose `lib` directory is incomplete, Gradle exits immediately with
@@ -550,19 +644,21 @@ printable monthly PDF statement, imports the app's expense CSV format, and the l
 offers a privacy-aware available-balance widget. Receipt scanning is deliberately omitted
 (see below).
 
+The `cloud` flavour adds one thing on top of all of it: signed-in backup and restore
+against a Firebase project of your own. Every other feature is identical between the two.
+
 ## Known gaps
 
-- **Not run on a device.** No emulator or physical device was available, so the app has
-  been verified by compilation and unit tests only. The first thing to do is install the
-  debug APK and walk through the flows.
 - **80C tracker** remains on the list.
-- **Receipt scanning** is not built, to keep the app free of any network permission.
+- **Receipt scanning** is not built, to keep the offline flavour free of any network
+  permission.
 - **The assistant only understands what it was taught.** It is a rules engine over a fixed
   set of intents, so a question phrased unusually may not match. It says so when that
   happens rather than guessing.
-- **The snapshot's idea of "today" can go stale.** It is captured when the snapshot is
-  assembled, so an app left open across midnight keeps yesterday's date until something
-  changes and the flow re-emits. Low impact, but it is a real edge.
+- **Cloud backup has been exercised only against the abstraction.** Both flavours build,
+  the offline one refuses every call, and the naming that keeps one device from pruning
+  another's snapshots is unit-tested. The Firebase path itself needs a real project to
+  verify end to end.
 - **Future credit card spending is not projected.** Only the outstanding the user has
   recorded is. Guessing next month's card spending would be inventing a number.
 - **Database is not encrypted at rest.** The PIN is stored only as a PBKDF2 hash with a

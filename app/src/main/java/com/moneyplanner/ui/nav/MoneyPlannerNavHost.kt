@@ -31,6 +31,7 @@ import com.moneyplanner.ui.screens.assets.FamilyScreen
 import com.moneyplanner.ui.screens.assets.VehicleEditorScreen
 import com.moneyplanner.ui.screens.assets.VehiclesScreen
 import com.moneyplanner.ui.screens.budgets.BudgetsScreen
+import com.moneyplanner.ui.screens.cloud.CloudBackupScreen
 import com.moneyplanner.ui.screens.calendar.CalendarScreen
 import com.moneyplanner.ui.screens.commitments.AnnualEditorScreen
 import com.moneyplanner.ui.screens.commitments.AnnualScreen
@@ -531,8 +532,13 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
                 SettingsScreen(
                     onBack = { navController.popBackStack() },
                     onOpenCategories = { navController.navigate(Routes.CATEGORIES) },
-                    onOpenAccounts = { navController.navigate(Routes.accounts()) }
+                    onOpenAccounts = { navController.navigate(Routes.accounts()) },
+                    onOpenCloudBackup = { navController.navigate(Routes.CLOUD_BACKUP) }
                 )
+            }
+
+            composable(Routes.CLOUD_BACKUP) {
+                CloudBackupScreen(onBack = { navController.popBackStack() })
             }
 
             composable(Routes.CATEGORIES) {

@@ -53,6 +53,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.moneyplanner.BuildConfig
 import com.moneyplanner.core.money.IndianFormat
 import com.moneyplanner.core.time.DateUtil
 import com.moneyplanner.ui.theme.MoneyTheme
@@ -75,6 +76,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenCategories: () -> Unit,
     onOpenAccounts: () -> Unit,
+    onOpenCloudBackup: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -381,7 +383,11 @@ fun SettingsScreen(
             item {
                 SectionCard(
                     title = "Your data",
-                    subtitle = "Everything stays on this device unless you share it"
+                    subtitle = if (BuildConfig.CLOUD_ENABLED) {
+                        "Yours to export, import or upload, whenever you choose"
+                    } else {
+                        "Everything stays on this device unless you share it"
+                    }
                 ) {
                     OutlinedButton(
                         onClick = viewModel::exportBackup,
@@ -414,8 +420,16 @@ fun SettingsScreen(
                     ) { Text("Restore from a backup") }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Restoring replaces everything currently in the app. Nothing is " +
-                            "uploaded anywhere at any point.",
+                        if (BuildConfig.CLOUD_ENABLED) {
+                            // The cloud card sits directly below this one, so the
+                            // absolute claim would read as a contradiction. This says
+                            // the same thing about the feature it is actually describing.
+                            "Restoring replaces everything currently in the app. These " +
+                                "backups stay in the folder you choose and go nowhere else."
+                        } else {
+                            "Restoring replaces everything currently in the app. Nothing " +
+                                "is uploaded anywhere at any point."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -473,6 +487,24 @@ fun SettingsScreen(
                             "The newest " + state.settings.backupKeepCount +
                                 " backups are kept; older ones are removed.",
                             style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Only the cloud flavour has anywhere for this to lead. The offline build
+            // has no network at all, so offering the row would be offering nothing.
+            if (BuildConfig.CLOUD_ENABLED) {
+                item {
+                    SectionCard(
+                        title = "Cloud backup",
+                        modifier = Modifier.clickable(onClick = onOpenCloudBackup)
+                    ) {
+                        Text(
+                            "Keep copies of your records under your own account, so " +
+                                "losing this phone is not losing the history.",
+                            style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -549,10 +581,20 @@ fun SettingsScreen(
 
             item {
                 SectionCard(title = "About") {
+                    // Two builds, two different true statements. The offline build's claim
+                    // is checkable in its merged manifest, so it must not be printed by a
+                    // build that does hold the INTERNET permission.
                     Text(
-                        "Personal Money Planner works entirely offline. It has no internet " +
-                            "permission, no account, and no analytics. Your financial " +
-                            "records never leave this device unless you export them yourself.",
+                        if (BuildConfig.CLOUD_ENABLED) {
+                            "Personal Money Planner keeps your records on this device. " +
+                                "It has no analytics and no tracking. The only thing that " +
+                                "ever leaves this phone is a backup you ask it to upload."
+                        } else {
+                            "Personal Money Planner works entirely offline. It has no " +
+                                "internet permission, no account, and no analytics. Your " +
+                                "financial records never leave this device unless you " +
+                                "export them yourself."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

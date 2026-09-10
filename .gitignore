@@ -13,3 +13,6 @@ captures/
 !debug.keystore
 keystore.properties
 *.jks
+
+# Firebase project config: names your project, not shared with clones.
+google-services.json
