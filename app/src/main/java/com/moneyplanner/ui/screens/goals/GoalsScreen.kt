@@ -64,7 +64,7 @@ import com.moneyplanner.ui.theme.MoneyTheme
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GoalsScreen(
-    onBack: (() -> Unit)?,
+    onBack: () -> Unit,
     onAddGoal: () -> Unit,
     onOpenGoal: (Long) -> Unit,
     viewModel: GoalsViewModel = hiltViewModel()
@@ -77,13 +77,11 @@ fun GoalsScreen(
             TopAppBar(
                 title = { Text("Savings goals") },
                 navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
-                            )
-                        }
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 }
             )

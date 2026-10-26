@@ -1,6 +1,42 @@
 package com.moneyplanner.ui.screens.dashboard
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.AddCircleOutline
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.EventRepeat
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
+import com.moneyplanner.ui.components.softShadow
+import com.moneyplanner.ui.theme.PillLabelStyle
+import kotlin.math.roundToInt
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,23 +51,18 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PieChart
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Shield
@@ -57,13 +88,14 @@ import com.moneyplanner.core.money.Money
 import com.moneyplanner.core.time.DateUtil
 import com.moneyplanner.domain.calc.ForecastItem
 import com.moneyplanner.domain.calc.BudgetState
-import com.moneyplanner.domain.calc.ForecastItemKind
 import com.moneyplanner.ui.components.ColorAvatar
 import com.moneyplanner.ui.components.GoalProgressBar
 import com.moneyplanner.ui.components.IconWash
 import com.moneyplanner.ui.components.LoadingState
 import com.moneyplanner.ui.components.MoneyText
-import com.moneyplanner.ui.components.QuickActionChip
+import com.moneyplanner.domain.calc.AttentionSummary
+import com.moneyplanner.ui.components.Confidence
+import com.moneyplanner.ui.components.ConfidencePill
 import com.moneyplanner.ui.components.SectionCard
 import com.moneyplanner.ui.components.StatusPill
 import com.moneyplanner.ui.components.SummaryRow
@@ -91,6 +123,8 @@ fun DashboardScreen(
     onOpenEmergencyFund: () -> Unit,
     onOpenCalendar: () -> Unit,
     onOpenTransactions: () -> Unit,
+    /** Every expense with no account or card, from every month, ready to be assigned. */
+    onOpenUnassigned: () -> Unit,
     onOpenAffordability: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenBudgets: () -> Unit,
@@ -111,6 +145,7 @@ fun DashboardScreen(
             onOpenEmergencyFund = onOpenEmergencyFund,
             onOpenCalendar = onOpenCalendar,
             onOpenTransactions = onOpenTransactions,
+            onOpenUnassigned = onOpenUnassigned,
             onOpenAffordability = onOpenAffordability,
             onOpenAssistant = onOpenAssistant,
             onOpenBudgets = onOpenBudgets
@@ -132,20 +167,25 @@ private fun DashboardContent(
     onOpenEmergencyFund: () -> Unit,
     onOpenCalendar: () -> Unit,
     onOpenTransactions: () -> Unit,
+    onOpenUnassigned: () -> Unit,
     onOpenAffordability: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenBudgets: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
-        // 20dp side margins per the framework's mobile grid.
-        contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 96.dp),
+        // 20dp side margins per the mobile grid, and room at the end so the last card
+        // clears the floating add button.
+        contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 104.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item { GreetingRow(state, onOpenSearch) }
 
+        // The promise, stated where it is seen every day rather than buried in Settings.
+        item { PrivacyChip() }
+
         item {
-            AvailableNowCard(
+            HeroBalanceCard(
                 state = state,
                 onAddExpense = onAddExpense,
                 onAddIncome = onAddIncome,
@@ -154,22 +194,58 @@ private fun DashboardContent(
             )
         }
 
-        state.runwayHeadline?.let { headline ->
-            item { RunwayWarningCard(headline, state, onOpenForecast) }
+        // Order is the argument this screen makes: what you have, what is wrong, what is
+        // about to leave, and only then how the month is expected to end. Anything the
+        // user cannot act on today waits below that.
+        if (!state.attention.isEmpty) {
+            item {
+                AttentionCard(
+                    summary = state.attention,
+                    onOpenUnassigned = onOpenUnassigned,
+                    onOpenCalendar = onOpenCalendar
+                )
+            }
+        }
+
+        // Held back until there is something recorded. A brand-new install has no balance
+        // yet, so it sits below the comfort floor from the first day, and the card used to
+        // warn that the balance "dips low" directly above a forecast calling the month
+        // comfortable: scolding somebody for not having started yet.
+        if (state.hasAnyData) {
+            state.runwayHeadline?.let { headline ->
+                item { RunwayWarningCard(headline, state, onOpenForecast) }
+            }
         }
 
         if (!state.hasAnyData) {
             item { GettingStartedCard(onAddExpense) }
         }
 
-        item { IncomeCard(state) }
-
-        item { SpentSavedRow(state) }
+        if (!state.comingUp.isEmpty) {
+            item { ComingUpCard(state, onOpenCalendar) }
+        }
 
         item { ForecastCard(state, onOpenForecast) }
 
-        if (state.upcoming.isNotEmpty()) {
-            item { ComingUpCard(state, onOpenCalendar) }
+        // The bento: small facts read side by side, two to a row.
+        val tiles = buildList<@Composable (Modifier) -> Unit> {
+            add { SpentTile(state, onOpenTransactions, it) }
+            if (state.emergencyFund.targetAmount.isPositive) {
+                add { EmergencyFundTile(state, onOpenEmergencyFund, it) }
+            }
+            add { IncomeTile(state, onAddIncome, it) }
+            add { SavedTile(state, onOpenGoals, it) }
+        }
+        items(tiles.chunked(2)) { pair ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                pair.forEach { tile -> tile(Modifier.weight(1f).fillMaxHeight()) }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
         }
 
         if (state.receivable.isPositive || state.payable.isPositive) {
@@ -188,10 +264,6 @@ private fun DashboardContent(
             item { BudgetsCard(state, onOpenBudgets) }
         }
 
-        if (state.emergencyFund.targetAmount.isPositive) {
-            item { EmergencyFundCard(state, onOpenEmergencyFund) }
-        }
-
         if (state.recentExpenses.isNotEmpty()) {
             item { RecentSpendingCard(state, onOpenTransactions) }
         }
@@ -207,40 +279,53 @@ private fun DashboardContent(
 
 @Composable
 private fun GreetingRow(state: DashboardState.Ready, onOpenSearch: () -> Unit) {
+    val colors = MoneyTheme.colors
+    val initial = state.userName.trim().firstOrNull()?.uppercaseChar()
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                greeting(state),
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.primary
+                DateUtil.formatWeekdayDate(state.today),
+                style = MaterialTheme.typography.labelLarge,
+                color = colors.textSecondary
             )
             Text(
-                DateUtil.formatWeekdayDate(state.today),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                greeting(state),
+                style = MaterialTheme.typography.headlineLarge,
+                color = colors.display
             )
         }
         IconButton(onClick = onOpenSearch) {
-            Icon(Icons.Default.Search, contentDescription = "Search")
+            Icon(Icons.Default.Search, contentDescription = "Search", tint = colors.textSecondary)
         }
+        Spacer(Modifier.width(4.dp))
+        // A monogram rather than a photo: there is no account, so there is nothing to fetch
+        // a picture from, and a letter is enough to make the screen feel like theirs.
         Box(
             modifier = Modifier
-                .size(40.dp)
-                .background(MaterialTheme.colorScheme.secondaryContainer, CircleShape),
+                .size(44.dp)
+                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(14.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.Person,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(22.dp)
-            )
+            if (initial != null) {
+                Text(
+                    initial.toString(),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Icon(
+                    Icons.Default.Person,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
     }
 }
@@ -259,304 +344,818 @@ private fun greeting(state: DashboardState.Ready): String {
     return if (name.isEmpty()) partOfDay else "$partOfDay, $name"
 }
 
+@Composable
+private fun PrivacyChip() {
+    val colors = MoneyTheme.colors
+    val shape = RoundedCornerShape(50)
+    Row(
+        modifier = Modifier
+            .background(colors.sunken, shape)
+            .border(1.dp, colors.cardBorder, shape)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.Lock,
+            contentDescription = null,
+            tint = colors.accent,
+            modifier = Modifier.size(14.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "Works offline · Everything stays on this phone",
+            style = PillLabelStyle.copy(letterSpacing = 0.03.em),
+            color = colors.textSecondary
+        )
+    }
+}
+
 /**
- * The hero. One number at display size, with the actions that follow from it directly
- * underneath so the common path is a single reach.
+ * The hero, and the app's central claim.
+ *
+ * The headline is what is left after money already promised to a goal is set aside, not the
+ * bank total. Showing the total invites somebody to spend savings they had mentally
+ * committed; hiding the savings makes it look like money went missing. Both figures appear,
+ * with the spendable one at display size, because both are true and only one of them
+ * answers "can I buy this today".
  */
 @Composable
-private fun AvailableNowCard(
+private fun HeroBalanceCard(
     state: DashboardState.Ready,
     onAddExpense: () -> Unit,
     onAddIncome: () -> Unit,
     onOpenEmis: () -> Unit,
     onOpenGoals: () -> Unit
 ) {
-    SectionCard(contentPadding = 20.dp) {
-        Text(
-            "Available now",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(4.dp))
-        MoneyText(
-            money = state.availableBalance,
-            style = MaterialTheme.typography.displaySmall,
-            color = if (state.availableBalance.isNegative) {
-                MoneyTheme.colors.negative
-            } else {
-                MaterialTheme.colorScheme.primary
+    val colors = MoneyTheme.colors
+    val earmarked = state.breakdown.earmarkedForGoals
+    val spendable = state.breakdown.unallocated
+    val total = state.availableBalance
+    val shape = MaterialTheme.shapes.extraLarge
+    var explaining by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .softShadow(shape)
+            .clip(shape)
+            .background(colors.card)
+            .border(1.dp, colors.cardBorder, shape)
+    ) {
+        HorizonArcs(Modifier.align(Alignment.TopEnd))
+
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (earmarked.isPositive) "AVAILABLE TO SPEND" else "AVAILABLE NOW",
+                    style = PillLabelStyle,
+                    color = colors.textSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = { explaining = !explaining },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Outlined.Info,
+                        contentDescription = if (explaining) {
+                            "Hide what this figure means"
+                        } else {
+                            "What this figure means"
+                        },
+                        tint = colors.textTertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
-        )
+            MoneyText(
+                money = spendable,
+                style = MaterialTheme.typography.displayLarge,
+                color = if (spendable.isNegative) colors.negative else colors.display
+            )
+            if (explaining) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (earmarked.isPositive) {
+                        "Your bank and cash, minus what you have set aside for goals. The " +
+                            "money in goals is still yours; it is just not counted as free."
+                    } else {
+                        "Everything in your bank accounts and cash, from what you have recorded."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textSecondary
+                )
+            }
 
-        if (state.breakdown.earmarkedForGoals.isPositive) {
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "${IndianFormat.format(state.breakdown.earmarkedForGoals)} of this is set aside for goals",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            // The two components, shown only when they differ from the headline. With nothing
+            // set aside the breakdown would just repeat the number above it.
+            if (earmarked.isPositive) {
+                Spacer(Modifier.height(14.dp))
+                HorizontalDivider(color = colors.cardBorder)
+                Spacer(Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Total bank & cash",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.textSecondary
+                        )
+                        MoneyText(
+                            money = total,
+                            style = HeroSplitAmount,
+                            color = colors.textPrimary
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(onClickLabel = "Open savings goals", onClick = onOpenGoals)
+                    ) {
+                        Text(
+                            "Set aside for goals",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.textSecondary
+                        )
+                        MoneyText(
+                            money = -earmarked,
+                            style = HeroSplitAmount,
+                            showSign = true,
+                            color = colors.warning
+                        )
+                    }
+                }
+
+                val free = if (total.isPositive && !spendable.isNegative) {
+                    (spendable.paise.toDouble() / total.paise).toFloat().coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+                Spacer(Modifier.height(14.dp))
+                SplitTrack(free)
+                Spacer(Modifier.height(6.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    LegendDot(colors.display, "${(free * 100).roundToInt()}% free to spend")
+                    Spacer(Modifier.weight(1f))
+                    LegendDot(colors.accent, "${100 - (free * 100).roundToInt()}% set aside")
+                }
+            }
+
+            Spacer(Modifier.height(18.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                QuickActionTile(Icons.Default.AddCircleOutline, "Expense", onAddExpense, Modifier.weight(1f))
+                QuickActionTile(Icons.Default.Payments, "Income", onAddIncome, Modifier.weight(1f))
+                QuickActionTile(Icons.Default.EventRepeat, "Pay EMI", onOpenEmis, Modifier.weight(1f))
+                QuickActionTile(Icons.Default.Savings, "Set aside", onOpenGoals, Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** The balance split's figures: Inter, so the two columns align digit for digit. */
+private val HeroSplitAmount
+    @Composable get() = MaterialTheme.typography.titleMedium.copy(fontSize = 19.sp)
+
+/**
+ * The horizon motif: two soft arcs rising past the card's corner, the line between what has
+ * happened and what is still to come. Decoration only, so it is invisible to accessibility.
+ */
+@Composable
+private fun HorizonArcs(modifier: Modifier = Modifier) {
+    val colors = MoneyTheme.colors
+    Canvas(
+        modifier = modifier
+            .offset(x = 70.dp, y = (-90).dp)
+            .size(240.dp)
+    ) {
+        val outer = 28.dp.toPx()
+        drawCircle(
+            color = colors.forecastContainer.copy(alpha = 0.7f),
+            radius = size.minDimension / 2 - outer / 2,
+            style = Stroke(width = outer)
+        )
+        val inner = 14.dp.toPx()
+        drawCircle(
+            color = colors.accentSoft,
+            radius = size.minDimension / 2 - outer - inner,
+            style = Stroke(width = inner)
+        )
+    }
+}
+
+/** Free money against money set aside, as two segments of one track. */
+@Composable
+private fun SplitTrack(free: Float) {
+    val colors = MoneyTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(10.dp)
+            .background(colors.sunken, RoundedCornerShape(50))
+            .padding(2.dp)
+            .clearAndSetSemantics {
+                contentDescription = "${(free * 100).roundToInt()} percent free to spend, " +
+                    "the rest set aside for goals"
+            },
+        horizontalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        if (free > 0f) {
+            Box(
+                Modifier
+                    .weight(free)
+                    .fillMaxHeight()
+                    .background(colors.display, RoundedCornerShape(50))
             )
         }
-
-        Spacer(Modifier.height(20.dp))
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            QuickActionChip(Icons.Default.Remove, "Expense", onAddExpense)
-            QuickActionChip(Icons.Default.Add, "Income", onAddIncome)
-            QuickActionChip(Icons.Default.AccountBalance, "EMI", onOpenEmis)
-            QuickActionChip(Icons.Default.Savings, "Save", onOpenGoals)
-        }
-    }
-}
-
-@Composable
-private fun IncomeCard(state: DashboardState.Ready) {
-    val colors = MoneyTheme.colors
-    SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconWash(Icons.Default.ArrowDownward, colors.positive)
-            Spacer(Modifier.width(12.dp))
-            Text(
-                "Income",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        if (free < 1f) {
+            Box(
+                Modifier
+                    .weight(1f - free)
+                    .fillMaxHeight()
+                    .background(colors.accent, RoundedCornerShape(50))
             )
         }
-        Spacer(Modifier.height(12.dp))
-        MoneyText(
-            money = state.receivedThisMonth,
-            style = MaterialTheme.typography.headlineSmall
-        )
-        Text(
-            "Received this month",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-/** Spent and saved, side by side, because they are read as a pair. */
-@Composable
-private fun SpentSavedRow(state: DashboardState.Ready) {
-    val colors = MoneyTheme.colors
-    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        StatTile(
-            icon = Icons.Default.ArrowUpward,
-            tint = colors.negative,
-            label = "Spent",
-            amount = state.spentThisMonth,
-            modifier = Modifier.weight(1f)
-        )
-        StatTile(
-            icon = Icons.Default.Savings,
-            tint = MaterialTheme.colorScheme.secondary,
-            label = "Saved",
-            amount = state.savedThisMonth,
-            modifier = Modifier.weight(1f)
-        )
     }
 }
 
 @Composable
-private fun StatTile(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    tint: Color,
+private fun LegendDot(color: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier
+                .size(8.dp)
+                .background(color, CircleShape)
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(label, style = PillLabelStyle, color = MoneyTheme.colors.textTertiary)
+    }
+}
+
+/** One of the four shortcuts under the balance: a soft well with an icon and a word. */
+@Composable
+private fun QuickActionTile(
+    icon: ImageVector,
     label: String,
-    amount: Money,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    SectionCard(modifier = modifier) {
+    val colors = MoneyTheme.colors
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.sunken)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1
+        )
+    }
+}
+
+/** Overdue rows shown in full; the rest are counted, and every one is in the total line. */
+private const val OVERDUE_ROWS = 3
+
+/**
+ * The two kinds of problem worth interrupting for.
+ *
+ * Deliberately quiet. Overdue money and unlabelled records are ordinary parts of running a
+ * household, and a screen that shouts about them stops being opened. It uses the soft
+ * marigold surface rather than the error one, names the count so the size of the job is
+ * obvious before tapping, and every row leads somewhere the problem can actually be fixed.
+ */
+@Composable
+private fun AttentionCard(
+    summary: AttentionSummary,
+    onOpenUnassigned: () -> Unit,
+    onOpenCalendar: () -> Unit
+) {
+    val colors = MoneyTheme.colors
+
+    SectionCard(containerColor = colors.accentSoft, borderColor = colors.warningBorder) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconWash(icon, tint, size = 36.dp)
-            Spacer(Modifier.width(10.dp))
+            Icon(
+                Icons.Default.WarningAmber,
+                contentDescription = null,
+                tint = colors.warning,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(8.dp))
             Text(
-                label,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                "Needs attention",
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.warning,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                if (summary.actionCount == 1) "1 ACTION" else "${summary.actionCount} ACTIONS",
+                style = PillLabelStyle,
+                color = colors.warning
             )
         }
+
+        summary.overdue.take(OVERDUE_ROWS).forEach { item ->
+            Spacer(Modifier.height(10.dp))
+            AttentionRow(
+                leading = item.title.trim().firstOrNull()?.uppercase() ?: "!",
+                title = item.title + " · " + IndianFormat.format(item.amount),
+                // The day it was really due. A late balance is shown on today's date to
+                // keep it in view, so without this it would read as due today. A fixed
+                // bill's own subtitle is just "Due", which this line already says.
+                subtitle = "Due " + DateUtil.formatDayMonth(item.dueDate) +
+                    item.subtitle.takeIf { it.isNotBlank() && !it.equals("Due", ignoreCase = true) }
+                        ?.let { " · $it" }.orEmpty(),
+                confidence = Confidence.OVERDUE,
+                onClick = onOpenCalendar
+            )
+        }
+
+        // Every late rupee appears in a figure, even the rows cut for space, and the Next 7
+        // days total deliberately leaves late items out, so this line is their only total.
+        // Money to pay and money to receive are kept apart: one does not cancel the other.
+        if (summary.overdue.size > 1) {
+            val hidden = summary.overdue.size - OVERDUE_ROWS
+            val totals = listOfNotNull(
+                summary.overdueToPay.takeIf { it.isPositive }
+                    ?.let { IndianFormat.format(it) + " to pay" },
+                summary.overdueToReceive.takeIf { it.isPositive }
+                    ?.let { IndianFormat.format(it) + " to receive" }
+            ).joinToString(" and ")
+            Spacer(Modifier.height(8.dp))
+            Text(
+                buildString {
+                    if (hidden > 0) append("and $hidden more overdue. ")
+                    append("Late in all: ")
+                    append(totals)
+                    append(".")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.warning
+            )
+        }
+
+        if (summary.hasUnassigned) {
+            Spacer(Modifier.height(10.dp))
+            AttentionRow(
+                leading = "?",
+                title = if (summary.unassignedCount == 1) {
+                    "1 expense with no account"
+                } else {
+                    "${summary.unassignedCount} expenses with no account"
+                },
+                subtitle = IndianFormat.format(summary.unassignedTotal) + " in total",
+                confidence = Confidence.ACCOUNT_UNKNOWN,
+                // The list of exactly those expenses, from every month, rather than this
+                // month's spending, which could not even show which ones they were.
+                onClick = onOpenUnassigned,
+                pillBelow = true
+            )
+        }
+    }
+}
+
+/**
+ * One problem, as a white inset on the attention card, with its confidence on the right, or
+ * under the text when the pill is too long to sit beside it without squeezing the title.
+ */
+@Composable
+private fun AttentionRow(
+    leading: String,
+    title: String,
+    subtitle: String,
+    confidence: Confidence,
+    onClick: () -> Unit,
+    pillBelow: Boolean = false
+) {
+    val colors = MoneyTheme.colors
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(colors.card)
+            .clickable(onClick = onClick)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(colors.accentSoft, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(leading, style = MaterialTheme.typography.titleSmall, color = colors.warning)
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.textPrimary
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textSecondary,
+                maxLines = 2
+            )
+            if (pillBelow) {
+                Spacer(Modifier.height(6.dp))
+                ConfidencePill(confidence)
+            }
+        }
+        if (!pillBelow) {
+            Spacer(Modifier.width(8.dp))
+            ConfidencePill(confidence)
+        }
+    }
+}
+
+/**
+ * A small fact in a bento tile: an icon chip, a label, the figure, and a line of context.
+ * Tiles in one row stretch to the tallest, so the grid stays even.
+ */
+@Composable
+private fun BentoTile(
+    icon: ImageVector,
+    iconTint: Color,
+    iconWell: Color,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    trailing: (@Composable () -> Unit)? = null,
+    footer: @Composable () -> Unit,
+    value: @Composable () -> Unit
+) {
+    SectionCard(modifier = modifier, onClick = onClick) {
+        Row(verticalAlignment = Alignment.Top) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(iconWell, RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            trailing?.invoke()
+        }
         Spacer(Modifier.height(12.dp))
-        MoneyText(money = amount, style = MaterialTheme.typography.titleLarge)
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MoneyTheme.colors.textSecondary)
+        value()
+        Spacer(Modifier.height(4.dp))
+        footer()
+    }
+}
+
+private val TileFigure
+    @Composable get() = MaterialTheme.typography.displaySmall.copy(fontSize = 28.sp, lineHeight = 34.sp)
+
+@Composable
+private fun SpentTile(state: DashboardState.Ready, onOpen: () -> Unit, modifier: Modifier) {
+    val colors = MoneyTheme.colors
+    val comparison = state.spentComparison
+    val change = comparison.changePercent
+
+    BentoTile(
+        icon = Icons.Default.CreditCard,
+        iconTint = colors.forecast,
+        iconWell = colors.forecastContainer,
+        label = "Spent this month",
+        onClick = onOpen,
+        modifier = modifier,
+        footer = {
+            if (change != null && change != 0) {
+                // Measured to the same day of last month, never against its whole total,
+                // so a half-finished month is not congratulated for being unfinished.
+                val sameDay = DateUtil.formatDayMonth(
+                    comparison.previousMonth.atDay(comparison.comparableDay)
+                )
+                val less = change < 0
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (less) Icons.AutoMirrored.Filled.TrendingDown else Icons.AutoMirrored.Filled.TrendingUp,
+                        contentDescription = null,
+                        tint = if (less) colors.positive else colors.negative,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        "${kotlin.math.abs(change)}% ${if (less) "less" else "more"} than by $sameDay",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (less) colors.positive else colors.negative
+                    )
+                }
+            } else {
+                Text("So far this month", style = MaterialTheme.typography.labelMedium, color = colors.textTertiary)
+            }
+        }
+    ) {
+        MoneyText(state.spentThisMonth, style = TileFigure, color = colors.display)
+    }
+}
+
+@Composable
+private fun EmergencyFundTile(state: DashboardState.Ready, onOpen: () -> Unit, modifier: Modifier) {
+    val colors = MoneyTheme.colors
+    val fund = state.emergencyFund
+
+    BentoTile(
+        icon = Icons.Default.Shield,
+        iconTint = colors.warning,
+        iconWell = colors.accentSoft,
+        label = "Emergency fund",
+        onClick = onOpen,
+        modifier = modifier,
+        trailing = {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp)) {
+                CircularProgressIndicator(
+                    progress = { fund.progressFraction },
+                    modifier = Modifier.fillMaxSize(),
+                    color = colors.accent,
+                    trackColor = colors.sunken,
+                    strokeWidth = 4.dp,
+                    strokeCap = StrokeCap.Round,
+                    gapSize = 0.dp
+                )
+                Text("${fund.progressPercent}%", style = PillLabelStyle.copy(letterSpacing = 0.em), color = colors.textPrimary)
+            }
+        },
+        footer = {
+            Text(
+                "Target: ${fund.monthsOfCover} months",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.textSecondary
+            )
+        }
+    ) {
+        Text(
+            String.format(java.util.Locale.ENGLISH, "%.1f mo", fund.monthsCovered),
+            style = TileFigure,
+            color = colors.display,
+            modifier = Modifier.semantics {
+                contentDescription = String.format(
+                    java.util.Locale.ENGLISH, "%.1f months of essential expenses covered", fund.monthsCovered
+                )
+            }
+        )
+    }
+}
+
+@Composable
+private fun IncomeTile(state: DashboardState.Ready, onOpen: () -> Unit, modifier: Modifier) {
+    val colors = MoneyTheme.colors
+    BentoTile(
+        icon = Icons.Default.ArrowDownward,
+        iconTint = colors.positive,
+        iconWell = colors.positiveContainer,
+        label = "Income this month",
+        onClick = onOpen,
+        modifier = modifier,
+        footer = {
+            Text("Received so far", style = MaterialTheme.typography.labelMedium, color = colors.textTertiary)
+        }
+    ) {
+        MoneyText(state.receivedThisMonth, style = TileFigure, color = colors.display)
+    }
+}
+
+@Composable
+private fun SavedTile(state: DashboardState.Ready, onOpen: () -> Unit, modifier: Modifier) {
+    val colors = MoneyTheme.colors
+    BentoTile(
+        icon = Icons.Default.Savings,
+        iconTint = colors.warning,
+        iconWell = colors.accentSoft,
+        label = "Saved this month",
+        onClick = onOpen,
+        modifier = modifier,
+        footer = {
+            Text("Set aside for goals", style = MaterialTheme.typography.labelMedium, color = colors.textTertiary)
+        }
+    ) {
+        MoneyText(state.savedThisMonth, style = TileFigure, color = colors.display)
     }
 }
 
 /**
  * The month's outlook, led by a plain-language verdict.
  *
- * The status line is the point: a person should learn whether this month is comfortable
- * before they read a single figure.
+ * The verdict is the point: a person should learn whether this month is comfortable before
+ * they read a single figure. The bar is lavender because everything on it is projected.
  */
 @Composable
 private fun ForecastCard(state: DashboardState.Ready, onOpenForecast: () -> Unit) {
     val colors = MoneyTheme.colors
     val month = state.thisMonth
 
-    val (statusLabel, statusDetail, statusColor, statusIcon) = when {
+    val (statusLabel, statusColor, statusWell, statusIcon) = when {
         month.isShortfall -> Quad(
-            "Tight",
-            "Your commitments come to more than you have coming in.",
-            colors.negative,
-            Icons.Default.WarningAmber
+            "Tight", colors.negative, colors.negativeContainer, Icons.Default.WarningAmber
         )
         month.safeToSpend < month.estimatedEverydaySpend -> Quad(
-            "Careful",
-            "There is not much room left once your payments are made.",
-            colors.warning,
-            Icons.Default.WarningAmber
+            "Careful", colors.warning, colors.accentSoft, Icons.Default.WarningAmber
         )
-        else -> Quad(
-            "Comfortable",
-            "Your buffer is healthy for this month.",
-            colors.positive,
-            Icons.Default.CheckCircle
-        )
+        else -> Quad("Comfortable", colors.positive, colors.positiveContainer, Icons.Default.Check)
     }
 
-    SectionCard(
-        title = "${DateUtil.formatMonth(month.month).substringBefore(" ")} forecast",
-        action = {
-            IconButton(onClick = onOpenForecast) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Open forecast")
+    val expected = month.openingBalance + month.totalInflow
+    val committed = month.totalOutflow
+    val fraction = if (expected.paise <= 0L) 0f
+    else (committed.paise.toDouble() / expected.paise).toFloat().coerceIn(0f, 1f)
+
+    SectionCard(onClick = onOpenForecast) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${DateUtil.formatMonth(month.month).substringBefore(" ")} forecast",
+                style = MaterialTheme.typography.titleLarge,
+                color = colors.display,
+                modifier = Modifier.weight(1f)
+            )
+            Row(
+                modifier = Modifier
+                    .background(statusWell, RoundedCornerShape(50))
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(statusIcon, contentDescription = null, tint = statusColor, modifier = Modifier.size(14.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(statusLabel, style = MaterialTheme.typography.labelLarge, color = statusColor)
             }
         }
-    ) {
-        androidx.compose.material3.Surface(
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(modifier = Modifier.padding(14.dp)) {
-                Icon(statusIcon, contentDescription = null, tint = statusColor)
-                Spacer(Modifier.width(12.dp))
-                Column {
-                    Text(
-                        statusLabel,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = statusColor
-                    )
-                    Text(
-                        statusDetail,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "${(fraction * 100).toInt()}% of expected money is already committed",
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.textPrimary
+        )
+        Text(
+            buildAnnotatedString {
+                append("Safe to spend ")
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = colors.display)) {
+                    append(IndianFormat.format(month.safeToSpend))
                 }
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        val expected = month.openingBalance + month.totalInflow
-        val committed = month.totalOutflow
-        val fraction = if (expected.paise <= 0L) 0f
-        else (committed.paise.toDouble() / expected.paise).toFloat().coerceIn(0f, 1f)
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                "Expected in against payments",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                "${(fraction * 100).toInt()}% committed",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
-        }
-        Spacer(Modifier.height(8.dp))
+                append(" after every commitment you have recorded")
+                // Named, so the figure reconciles with the money shown going out and
+                // expected just below, which still includes the goal money.
+                if (month.setAsideForGoals.isPositive) {
+                    append(", with ${IndianFormat.format(month.setAsideForGoals)} kept aside for your goals")
+                }
+                append(".")
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.textSecondary
+        )
+        Spacer(Modifier.height(12.dp))
         GoalProgressBar(
             fraction = fraction,
-            color = statusColor,
+            color = colors.forecast,
             label = "${(fraction * 100).toInt()} percent of expected money is already committed"
         )
         Spacer(Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
             Text(
                 "${IndianFormat.format(committed)} going out",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.textTertiary,
+                modifier = Modifier.weight(1f)
             )
             Text(
                 "${IndianFormat.format(expected)} expected",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.textTertiary
             )
         }
-
-        Spacer(Modifier.height(12.dp))
-        HorizontalDivider(color = MoneyTheme.colors.cardBorder)
-        Spacer(Modifier.height(8.dp))
-        SummaryRow(
-            label = "Safe to spend",
-            amount = month.safeToSpend,
-            supporting = "After every commitment you have recorded",
-            emphasise = true
-        )
     }
 }
 
 private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 
+/**
+ * What is about to leave, and how much of it.
+ *
+ * The title, the total and the rows all describe one window, so the figure can be checked
+ * against the list beneath it rather than quietly covering a different stretch of days.
+ */
 @Composable
 private fun ComingUpCard(state: DashboardState.Ready, onOpenCalendar: () -> Unit) {
-    SectionCard(
-        title = "Coming up",
-        action = { TextButton(onClick = onOpenCalendar) { Text("View all") } }
-    ) {
-        state.upcoming.forEachIndexed { index, item ->
-            if (index > 0) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 4.dp),
-                    color = MoneyTheme.colors.cardBorder
+    val colors = MoneyTheme.colors
+    val window = state.comingUp
+
+    SectionCard {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Next ${window.days} days",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.display
                 )
+                // The total is the point of the section. A list alone tells somebody there
+                // are things ahead; the figure tells them whether today has room in it. It
+                // names the last day it counts, because "next 7 days" leaves open whether
+                // today is one.
+                if (window.committedOutflow.isPositive) {
+                    Text(
+                        IndianFormat.format(window.committedOutflow) + " due by " +
+                            DateUtil.formatDayMonth(window.lastDay),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.textSecondary
+                    )
+                }
             }
-            ForecastItemRow(item, state)
+            TextButton(onClick = onOpenCalendar) {
+                Text("View in Calendar", style = MaterialTheme.typography.labelLarge)
+                Icon(Icons.Default.ChevronRight, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+        }
+        Spacer(Modifier.height(4.dp))
+        state.upcoming.forEachIndexed { index, item ->
+            if (index > 0) HorizontalDivider(color = colors.borderSubtle)
+            ComingUpRow(item)
+        }
+
+        // Said rather than left to be noticed. Without it the rows look like the whole
+        // window, and a total larger than the rows add up to looks like a mistake.
+        if (state.upcomingNotShown > 0) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "and ${state.upcomingNotShown} more",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textSecondary
+            )
         }
     }
 }
 
 @Composable
-private fun ForecastItemRow(item: ForecastItem, state: DashboardState.Ready) {
+private fun ComingUpRow(item: ForecastItem) {
     val colors = MoneyTheme.colors
-    val tint = if (item.isInflow) colors.positive else MaterialTheme.colorScheme.primary
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconWash(icon = iconFor(item.kind), tint = tint)
-        Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(item.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
             Text(
-                DateUtil.formatDayMonth(item.date),
+                item.title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = colors.textPrimary,
+                maxLines = 1
+            )
+            Text(
+                DateUtil.formatDayMonth(item.date) +
+                    item.subtitle.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = colors.textSecondary,
+                maxLines = 1
             )
         }
-        MoneyText(
-            money = item.amount,
-            style = MaterialTheme.typography.titleMedium,
-            color = if (item.isInflow) colors.positive else MaterialTheme.colorScheme.onSurface
-        )
+        Spacer(Modifier.width(12.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // An estimate says so in its figure too, not only in its pill.
+                if (item.isEstimate) {
+                    Text("~", style = MaterialTheme.typography.titleMedium, color = colors.textPrimary)
+                }
+                MoneyText(
+                    money = item.amount,
+                    style = MaterialTheme.typography.titleMedium,
+                    showSign = item.isInflow,
+                    color = if (item.isInflow) colors.positive else colors.textPrimary
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            // How much the app trusts this figure, said out loud. A scheduled EMI and a
+            // guessed electricity bill are not the same kind of number.
+            ConfidencePill(
+                when {
+                    item.isOverdue -> Confidence.OVERDUE
+                    item.isEstimate -> Confidence.ESTIMATED
+                    else -> Confidence.UPCOMING
+                }
+            )
+        }
     }
-}
-
-private fun iconFor(kind: ForecastItemKind) = when (kind) {
-    ForecastItemKind.INCOME -> Icons.Default.ArrowDownward
-    ForecastItemKind.PERSON_INCOMING, ForecastItemKind.PERSON_OUTGOING -> Icons.Default.Groups
-    ForecastItemKind.EMI -> Icons.Default.AccountBalance
-    ForecastItemKind.BILL -> Icons.Default.CalendarMonth
-    ForecastItemKind.ANNUAL -> Icons.Default.CalendarMonth
-    ForecastItemKind.CREDIT_CARD -> Icons.Default.CreditCard
 }
 
 @Composable
@@ -592,47 +1191,6 @@ private fun CardsCard(state: DashboardState.Ready, onOpenCards: () -> Unit) {
             label = "Total outstanding",
             amount = state.creditCardOutstanding,
             supporting = "Leaves your account when the bill is paid"
-        )
-    }
-}
-
-@Composable
-private fun EmergencyFundCard(state: DashboardState.Ready, onOpen: () -> Unit) {
-    val fund = state.emergencyFund
-    val colors = MoneyTheme.colors
-
-    SectionCard(
-        title = "Emergency fund",
-        subtitle = "${fund.monthsOfCover} months of essential expenses",
-        action = {
-            IconButton(onClick = onOpen) {
-                Icon(Icons.Default.Shield, contentDescription = "Open emergency fund")
-            }
-        }
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom
-        ) {
-            MoneyText(fund.currentAmount, style = MaterialTheme.typography.titleLarge)
-            Text(
-                "of ${IndianFormat.format(fund.targetAmount)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Spacer(Modifier.height(10.dp))
-        GoalProgressBar(
-            fraction = fund.progressFraction,
-            color = if (fund.isFunded) colors.positive else MaterialTheme.colorScheme.primary,
-            label = "Emergency fund is ${fund.progressPercent} percent funded"
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            if (fund.isFunded) "Fully funded." else "${IndianFormat.format(fund.remainingAmount)} to go.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }

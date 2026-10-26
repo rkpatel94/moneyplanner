@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -37,9 +40,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.core.time.DateUtil
+import com.moneyplanner.ui.theme.MoneyTheme
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -107,7 +112,12 @@ fun LabelledTextField(
     isError: Boolean = false,
     errorMessage: String? = null,
     enabled: Boolean = true,
-    supportingText: String? = null
+    supportingText: String? = null,
+    /**
+     * Masking, for passwords. A password keyboard type alone still paints the characters
+     * on screen, which is not what anyone typing one expects.
+     */
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     OutlinedTextField(
         value = value,
@@ -117,6 +127,7 @@ fun LabelledTextField(
         singleLine = singleLine,
         enabled = enabled,
         isError = isError,
+        visualTransformation = visualTransformation,
         minLines = if (singleLine) 1 else 3,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
         supportingText = when {
@@ -284,10 +295,8 @@ fun <T> ChipSelector(
                     selected = option == selected,
                     onClick = { onSelect(option) },
                     label = { Text(optionLabel(option)) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    shape = RoundedCornerShape(50),
+                    colors = choiceChipColors()
                 )
             }
         }
@@ -365,15 +374,31 @@ fun Int.ordinalDay(): String {
 }
 
 /**
- * The primary action. Solid deep navy at a 56dp height, which the framework specifies for
- * reliable touch targets and which keeps the button comfortably inside the thumb zone.
+ * A chosen chip is marigold with ink text; an unchosen one is a quiet outlined pill. The
+ * same treatment everywhere a single option is picked from a row, so "chosen" is learned
+ * once.
+ */
+@Composable
+fun choiceChipColors() = FilterChipDefaults.filterChipColors(
+    containerColor = MoneyTheme.colors.card,
+    labelColor = MoneyTheme.colors.textPrimary,
+    iconColor = MoneyTheme.colors.textSecondary,
+    selectedContainerColor = MoneyTheme.colors.accent,
+    selectedLabelColor = MoneyTheme.colors.onAccent,
+    selectedLeadingIconColor = MoneyTheme.colors.onAccent
+)
+
+/**
+ * The primary action: a full indigo pill, 52dp tall, sitting in the thumb zone. A trailing
+ * icon, when given, points the way the action goes.
  */
 @Composable
 fun PrimaryActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    trailingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null
 ) {
     Button(
         onClick = onClick,
@@ -381,13 +406,17 @@ fun PrimaryActionButton(
             .fillMaxWidth()
             .height(56.dp),
         enabled = enabled,
-        shape = MaterialTheme.shapes.small,
+        shape = RoundedCornerShape(50),
         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
         )
     ) {
         Text(text, style = MaterialTheme.typography.titleMedium)
+        if (trailingIcon != null) {
+            androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+            Icon(trailingIcon, contentDescription = null, modifier = Modifier.size(20.dp))
+        }
     }
 }
 

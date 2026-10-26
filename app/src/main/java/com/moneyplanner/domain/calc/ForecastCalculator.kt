@@ -20,7 +20,7 @@ import kotlin.math.pow
  * generally spend: every rupee in the projection traces back to a salary, a loan, a bill,
  * a commitment or the user's own spending history.
  *
- * Three rules keep the projection honest, and each is applied in exactly one place:
+ * Four rules keep the projection honest, and each is applied in exactly one place:
  *
  *  - **An obligation is counted once.** A bill that has been paid is already reflected in
  *    the balance, so only unpaid occurrences are projected. The expense created when it
@@ -30,6 +30,9 @@ import kotlin.math.pow
  *    cash leaves when the card bill is paid. Only the card due is projected.
  *  - **The current month is partial.** Money already spent and received this month is
  *    inside the opening balance, so only what remains is projected on top of it.
+ *  - **Money set aside for a goal is kept, not spendable.** It never left the account, so
+ *    it stays inside every balance and a projected shortfall means the account really
+ *    runs dry. It is never offered as safe to spend, though: see [MonthForecast.safeToSpend].
  */
 object ForecastCalculator {
 
@@ -141,6 +144,11 @@ object ForecastCalculator {
             owedToPeopleOutflow = owedOutflow,
             estimatedEverydaySpend = estimatedEveryday,
             plannedSavings = plannedSavings,
+            // As of the month's end, so a contribution dated ahead counts from its own
+            // month, but never earlier than today, which the opening balance runs to.
+            setAsideForGoals = BalanceCalculator.earmarkedForGoalsAsOf(
+                snapshot, maxOf(month.atEndOfMonth(), snapshot.today)
+            ),
             actualIncomeSoFar = actualIncome,
             actualSpendSoFar = actualSpend,
             isCurrentMonth = isCurrentMonth,
@@ -282,13 +290,15 @@ object ForecastCalculator {
                             } else {
                                 "Money to repay"
                             }
-                        }.let { if (isOverdue) "$it · overdue" else it },
+                        },
                         amount = row.outstandingAmount,
                         kind = if (row.entry.direction == LedgerDirection.THEY_OWE_ME) {
                             ForecastItemKind.PERSON_INCOMING
                         } else {
                             ForecastItemKind.PERSON_OUTGOING
                         },
+                        isOverdue = isOverdue,
+                        originallyDue = expected.takeIf { isOverdue },
                         sourceId = personId,
                         isEstimate = false
                     )
@@ -310,6 +320,7 @@ object ForecastCalculator {
                             subtitle = "Installment ${installment.installmentNumber} of ${emi.totalInstallments}",
                             amount = installment.amount,
                             kind = ForecastItemKind.EMI,
+                            isOverdue = installment.dueDate.isBefore(snapshot.today),
                             sourceId = emi.id,
                             isEstimate = false
                         )
@@ -336,6 +347,7 @@ object ForecastCalculator {
                         subtitle = if (bill.amountType.name == "ESTIMATED") "Estimated" else "Due",
                         amount = bill.amount,
                         kind = ForecastItemKind.BILL,
+                        isOverdue = date.isBefore(snapshot.today),
                         sourceId = bill.id,
                         isEstimate = bill.amountType.name == "ESTIMATED"
                     )
@@ -358,6 +370,8 @@ object ForecastCalculator {
                     subtitle = "Yearly commitment",
                     amount = annual.amount,
                     kind = ForecastItemKind.ANNUAL,
+                    isOverdue = DateUtil.dayInMonth(month, annual.dueDayOfMonth)
+                        .isBefore(snapshot.today),
                     sourceId = annual.id,
                     isEstimate = false
                 )
@@ -403,6 +417,7 @@ object ForecastCalculator {
                     },
                     amount = owed,
                     kind = ForecastItemKind.CREDIT_CARD,
+                    isOverdue = dueOn.isBefore(snapshot.today),
                     sourceId = card.id,
                     isEstimate = false
                 )
@@ -455,10 +470,30 @@ data class ForecastItem(
     val kind: ForecastItemKind,
     val sourceId: Long?,
     /** True when the amount is the user's own estimate rather than a fixed figure. */
-    val isEstimate: Boolean
+    val isEstimate: Boolean,
+    /**
+     * True when the due date has already passed and the money has not moved.
+     *
+     * Stored rather than derived from [date], because an overdue person entry is carried
+     * forward to today so it stays visible, which loses the original date. It used to be
+     * expressed only by appending " · overdue" to the subtitle, which meant the screen had
+     * to read English prose to colour a row. A flag is something the UI can act on.
+     */
+    val isOverdue: Boolean = false,
+    /**
+     * The day it was really due, when [date] has been moved forward to keep it in view.
+     *
+     * Null for everything dated where it falls. Without it, a balance weeks late sorts
+     * after a bill that went overdue yesterday, because both are judged by a date that
+     * says today, and the longest-standing debt is the one pushed out of sight.
+     */
+    val originallyDue: LocalDate? = null
 ) {
     val isInflow: Boolean get() = kind.isInflow
     val signedAmount: Money get() = if (isInflow) amount else -amount
+
+    /** When it fell due, which for a late item carried forward is not the day it is shown on. */
+    val dueDate: LocalDate get() = originallyDue ?: date
 }
 
 data class MonthForecast(
@@ -474,6 +509,12 @@ data class MonthForecast(
     val estimatedEverydaySpend: Money,
     /** Guidance, not a bill: what the savings goals need this month to stay on track. */
     val plannedSavings: Money,
+    /**
+     * Money already set aside for savings goals by the end of the month. It is inside
+     * [closingBalance], because it never left the account, but it is promised, so it is
+     * kept out of [safeToSpend].
+     */
+    val setAsideForGoals: Money,
     val actualIncomeSoFar: Money,
     val actualSpendSoFar: Money,
     val isCurrentMonth: Boolean,
@@ -492,18 +533,28 @@ data class MonthForecast(
     /** The projected balance at the end of the month. Savings stay inside this figure. */
     val closingBalance: Money get() = openingBalance + totalInflow - totalOutflow
 
-    /** What is left after also putting the recommended savings aside. */
-    val closingAfterPlannedSavings: Money get() = closingBalance - plannedSavings
+    /**
+     * What is left once this month's recommended saving is put aside as well, on top of the
+     * money already set aside. Not floored at zero: below zero, the goals cannot all be kept
+     * on track this month.
+     */
+    val leftAfterPlannedSavings: Money
+        get() = closingBalance - setAsideForGoals - plannedSavings
 
     val netFlow: Money get() = totalInflow - totalOutflow
 
     /** True when the month is projected to end short of money. */
     val isShortfall: Boolean get() = closingBalance.isNegative
 
-    /** Money that is genuinely free to spend once every commitment is met. */
+    /**
+     * Money that is genuinely free to spend once every commitment is met.
+     *
+     * Money already set aside for goals is left out. It is still in the balance, but the
+     * home screen already treats it as promised rather than available, and counting it here
+     * once let this figure run far past the money the home screen called free to spend.
+     */
     val safeToSpend: Money
-        get() = (openingBalance + totalInflow - committedOutflow - estimatedEverydaySpend)
-            .coerceAtLeastZero()
+        get() = (closingBalance - setAsideForGoals).coerceAtLeastZero()
 
     fun itemsOn(date: LocalDate): List<ForecastItem> = items.filter { it.date == date }
 }

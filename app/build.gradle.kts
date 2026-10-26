@@ -84,7 +84,6 @@ android {
 
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
     packaging {
@@ -120,6 +119,9 @@ ksp {
 }
 
 dependencies {
+    // Nothing in this list may need a network. Each library's manifest is merged into the
+    // app's, so one that declares INTERNET would quietly add it here and break the promise
+    // that the app has no network access at all and keeps every record on the device.
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.kotlinx.coroutines.android)

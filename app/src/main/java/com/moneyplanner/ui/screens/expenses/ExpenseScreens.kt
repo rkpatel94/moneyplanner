@@ -20,7 +20,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,9 +44,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moneyplanner.core.money.IndianFormat
 import com.moneyplanner.core.time.DateUtil
 import com.moneyplanner.domain.model.PaymentMethod
+import com.moneyplanner.ui.components.MonthSelector
 import com.moneyplanner.ui.components.AmountField
 import com.moneyplanner.ui.components.ChipSelector
 import com.moneyplanner.ui.components.ColorAvatar
+import com.moneyplanner.ui.components.Confidence
+import com.moneyplanner.ui.components.ConfidencePill
 import com.moneyplanner.ui.components.ConfirmDialog
 import com.moneyplanner.ui.components.DateField
 import com.moneyplanner.ui.components.DropdownField
@@ -57,21 +61,87 @@ import com.moneyplanner.ui.components.SectionCard
 import com.moneyplanner.ui.components.StatusPill
 import com.moneyplanner.ui.util.categoryIcon
 
-/** The month view of everything spent, with a category filter across the top. */
+import java.time.YearMonth
+
+/**
+ * The month view of everything spent, with a category filter across the top.
+ *
+ * It is opened from Home and More rather than from the bottom bar, and the bar is hidden
+ * here, so it carries its own back arrow. Opened from the dashboard's "expenses with no
+ * account" row, it lists exactly those expenses from every month instead, each marked, so
+ * the user can open one and say which account paid.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionsScreen(
+    onBack: () -> Unit,
     onAddExpense: () -> Unit,
     onEditExpense: (Long) -> Unit,
     viewModel: TransactionsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        MonthSelector(
-            label = DateUtil.formatMonth(state.month),
-            onPrevious = viewModel::previousMonth,
-            onNext = viewModel::nextMonth
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(if (state.unassignedOnly) "Expenses with no account" else "All transactions")
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                )
+            )
+        }
+    ) { padding ->
+        TransactionsContent(
+            state = state,
+            onPreviousMonth = viewModel::previousMonth,
+            onNextMonth = viewModel::nextMonth,
+            onFilterByCategory = viewModel::filterByCategory,
+            onAddExpense = onAddExpense,
+            onEditExpense = onEditExpense,
+            modifier = Modifier.padding(padding)
         )
+    }
+}
+
+@Composable
+private fun TransactionsContent(
+    state: TransactionsState,
+    onPreviousMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    onFilterByCategory: (Long?) -> Unit,
+    onAddExpense: () -> Unit,
+    onEditExpense: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxSize()) {
+        if (state.unassignedOnly) {
+            // These can come from any month, so there is no month to page through.
+            Text(
+                "Recorded without an account or card, so the balance cannot say where " +
+                    "this money came from. Open one to choose the account that paid.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+            )
+        } else {
+            MonthSelector(
+                month = state.month,
+                // From the state rather than the wall clock, so "this month" comes from
+                // TodayProvider like every other "today" and moves on at midnight with it.
+                currentMonth = YearMonth.from(state.today),
+                onPrevious = onPreviousMonth,
+                onNext = onNextMonth
+            )
+        }
 
         Row(
             modifier = Modifier
@@ -81,7 +151,11 @@ fun TransactionsScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                if (state.selectedCategoryId == null) "Total spent" else "Filtered total",
+                when {
+                    state.selectedCategoryId != null -> "Filtered total"
+                    state.unassignedOnly -> "Total with no account"
+                    else -> "Total spent"
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -95,7 +169,7 @@ fun TransactionsScreen(
             ChipSelector(
                 options = listOf<Long?>(null) + state.categories.map { it.id },
                 selected = state.selectedCategoryId,
-                onSelect = viewModel::filterByCategory,
+                onSelect = onFilterByCategory,
                 optionLabel = { id ->
                     if (id == null) "All" else state.categoriesById[id]?.name ?: "Other"
                 },
@@ -103,9 +177,16 @@ fun TransactionsScreen(
             )
         }
 
-        if (state.expenses.isEmpty()) {
+        if (state.expenses.isEmpty() && state.unassignedOnly) {
             EmptyState(
-                icon = Icons.Default.ReceiptLong,
+                icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                title = "Every expense has an account",
+                message = "Nothing is left to assign. Each expense now says which account " +
+                    "or card it was paid from."
+            )
+        } else if (state.expenses.isEmpty()) {
+            EmptyState(
+                icon = Icons.AutoMirrored.Filled.ReceiptLong,
                 title = "Nothing recorded yet",
                 message = "Expenses you add for ${DateUtil.formatMonth(state.month)} will appear here.",
                 actionLabel = "Add an expense",
@@ -138,7 +219,10 @@ fun TransactionsScreen(
                             )
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
-                                    "${DateUtil.formatDayMonth(expense.date)} · ${expense.paymentMethod.label}",
+                                    // With every month in one list, the year matters too.
+                                    (if (state.unassignedOnly) DateUtil.formatDate(expense.date)
+                                    else DateUtil.formatDayMonth(expense.date)) +
+                                        " · ${expense.paymentMethod.label}",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -146,6 +230,10 @@ fun TransactionsScreen(
                                     Spacer(Modifier.width(6.dp))
                                     StatusPill(text = "Scheduled")
                                 }
+                            }
+                            if (state.unassignedOnly) {
+                                Spacer(Modifier.height(4.dp))
+                                ConfidencePill(Confidence.ACCOUNT_UNKNOWN)
                             }
                         }
                         MoneyText(
@@ -160,26 +248,3 @@ fun TransactionsScreen(
     }
 }
 
-@Composable
-fun MonthSelector(
-    label: String,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = onPrevious) {
-            Icon(Icons.Default.ChevronLeft, contentDescription = "Previous month")
-        }
-        Text(label, style = MaterialTheme.typography.titleMedium)
-        IconButton(onClick = onNext) {
-            Icon(Icons.Default.ChevronRight, contentDescription = "Next month")
-        }
-    }
-}

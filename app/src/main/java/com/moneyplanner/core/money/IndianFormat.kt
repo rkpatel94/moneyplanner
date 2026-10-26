@@ -12,7 +12,8 @@ import kotlin.math.abs
  */
 object IndianFormat {
 
-    private const val RUPEE = "₹"
+    /** Public so the display layer can find it and set it apart from the digits. */
+    const val RUPEE = "₹"
 
     /** Groups the digits of a non-negative whole number, Indian style. */
     fun groupDigits(value: Long): String {

@@ -147,7 +147,15 @@ class SnapshotRepository @Inject constructor(
         )
     }
 
-    /** The full picture, refreshed whenever anything the user has recorded changes. */
+    /**
+     * The full picture, refreshed whenever anything the user has recorded changes.
+     *
+     * This is deliberately a cold flow, so every collector, and every call to `first()`,
+     * starts its own subscription that queries Room afresh. Several callers write a record
+     * and then read `snapshot.first()` straight away, and they need to see their own write.
+     * Sharing this flow with a replay cache would hand them the cached snapshot from before
+     * that write instead, so it must not be turned into a shared or state flow.
+     */
     val snapshot: Flow<FinancialSnapshot> = combine(
         profileBundle,
         flowBundle,

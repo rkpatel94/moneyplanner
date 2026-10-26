@@ -31,19 +31,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import com.moneyplanner.core.money.IndianFormat
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.ui.theme.Elevation
+import com.moneyplanner.ui.theme.Inter
 import com.moneyplanner.ui.theme.MoneyTheme
 
 /**
@@ -84,13 +92,59 @@ fun MoneyText(
     }
 
     Text(
-        text = text,
+        text = typeset(text, style),
         modifier = modifier.semantics { contentDescription = spokenAmount(money) },
         style = style,
         color = resolved,
         maxLines = 1
     )
 }
+
+/**
+ * Sets the sign and the rupee symbol a step lighter than the digits.
+ *
+ * The value is what the eye is looking for. Rendering the marker at the same weight makes
+ * a column of figures read as a wall of ink, and the difference between ₹8,500 and ₹85,000
+ * is exactly what a person is scanning for.
+ *
+ * The ASCII hyphen is swapped for a true minus, which sits on the same optical line as the
+ * digits and matches their width in a tabular face. That is a display concern only: the
+ * formatter keeps producing plain text for exports, and the tests that pin it still hold.
+ */
+private fun typeset(text: String, style: TextStyle): AnnotatedString {
+    val symbolAt = text.indexOf(IndianFormat.RUPEE)
+    val digitWeight = style.fontWeight ?: FontWeight.SemiBold
+    if (symbolAt < 0) return AnnotatedString(text)
+
+    val sign = text.take(symbolAt).replace('-', MINUS)
+    val symbol = text[symbolAt].toString()
+    val digits = text.substring(symbolAt + 1)
+
+    // The rupee sign is always Inter, two steps lighter and at 85% of the digits, whatever
+    // face the digits are in. Its crossbars are heavy in any display face, and at the same
+    // weight and size it would compete with the number it introduces.
+    val symbolStyle = SpanStyle(
+        fontFamily = Inter,
+        fontWeight = FontWeight((digitWeight.weight - 200).coerceAtLeast(400)),
+        fontSize = 0.85.em
+    )
+
+    return buildAnnotatedString {
+        withStyle(symbolStyle) {
+            if (sign.isNotEmpty()) {
+                append(sign)
+                // A hair of space after the sign, as the design shows, so "− ₹4,800" does
+                // not read as one run-on token.
+                append(' ')
+            }
+            append(symbol)
+        }
+        withStyle(SpanStyle(fontWeight = digitWeight)) { append(digits) }
+    }
+}
+
+/** U+2212. The typographic minus, not the hyphen a keyboard produces. */
+private const val MINUS = '−'
 
 private fun spokenAmount(money: Money): String {
     val rupees = money.paise / 100
@@ -101,7 +155,11 @@ private fun spokenAmount(money: Money): String {
 }
 
 /**
- * The standard elevated card: white, 24dp corners, soft-blue hairline, gentle navy shadow.
+ * The standard card: solid white, 24dp corners, a porcelain hairline and a soft shadow
+ * tinted with indigo rather than black.
+ *
+ * Cards are never translucent. They hold the figures, and a figure has to stay legible in
+ * direct sunlight; glass is reserved for the floating chrome that moves over them.
  */
 @Composable
 fun SectionCard(
@@ -111,40 +169,92 @@ fun SectionCard(
     action: (@Composable () -> Unit)? = null,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainerLowest,
     contentPadding: Dp = 16.dp,
+    borderColor: Color = MoneyTheme.colors.cardBorder,
+    onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = Elevation.level1),
-        border = BorderStroke(1.dp, MoneyTheme.colors.cardBorder)
-    ) {
-        Column(modifier = Modifier.padding(contentPadding)) {
-            if (title != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(title, style = MaterialTheme.typography.titleLarge)
-                        if (subtitle != null) {
-                            Text(
-                                subtitle,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    action?.invoke()
-                }
-                Spacer(Modifier.height(16.dp))
-            }
-            content()
-        }
+    val shape = MaterialTheme.shapes.large
+    val cardModifier = modifier
+        .fillMaxWidth()
+        .softShadow(shape)
+    val cardColors = CardDefaults.cardColors(containerColor = containerColor)
+    val noElevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    val border = BorderStroke(1.dp, borderColor)
+
+    // A whole card that leads somewhere is one target, with its ripple clipped to its shape.
+    if (onClick != null) {
+        Card(
+            onClick = onClick,
+            modifier = cardModifier,
+            shape = shape,
+            colors = cardColors,
+            elevation = noElevation,
+            border = border
+        ) { SectionCardBody(title, subtitle, action, contentPadding, content) }
+    } else {
+        Card(
+            modifier = cardModifier,
+            shape = shape,
+            colors = cardColors,
+            elevation = noElevation,
+            border = border
+        ) { SectionCardBody(title, subtitle, action, contentPadding, content) }
     }
 }
+
+@Composable
+private fun SectionCardBody(
+    title: String?,
+    subtitle: String?,
+    action: (@Composable () -> Unit)?,
+    contentPadding: Dp,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(modifier = Modifier.padding(contentPadding)) {
+        if (title != null) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MoneyTheme.colors.display
+                    )
+                    if (subtitle != null) {
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                action?.invoke()
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+        content()
+    }
+}
+
+/**
+ * The card shadow: two soft layers tinted with the ink colour, so a card lifts off the
+ * porcelain page without the grey smudge a black shadow leaves on a warm surface.
+ */
+fun Modifier.softShadow(
+    shape: androidx.compose.ui.graphics.Shape,
+    elevation: Dp = Elevation.level1 * 2
+): Modifier = shadow(
+    elevation = elevation,
+    shape = shape,
+    clip = false,
+    ambientColor = ShadowInk.copy(alpha = 0.10f),
+    spotColor = ShadowInk.copy(alpha = 0.14f)
+)
+
+private val ShadowInk = Color(0xFF0B0D2B)
 
 /** A label and amount on one line, the workhorse of every summary in the app. */
 @Composable
@@ -423,13 +533,18 @@ fun InOutBar(
     }
 }
 
-/** A small status pill, used for due dates, paid markers and warnings. */
+/**
+ * A small status pill, used for due dates, paid markers and warnings.
+ *
+ * Neutral unless told otherwise. Marigold is kept for what is active or needs a decision,
+ * so an ordinary "Scheduled" marker does not borrow the colour of an alarm.
+ */
 @Composable
 fun StatusPill(
     text: String,
     modifier: Modifier = Modifier,
-    containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
-    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+    containerColor: Color = MoneyTheme.colors.neutralContainer,
+    contentColor: Color = MoneyTheme.colors.textSecondary,
     leadingIcon: ImageVector? = null
 ) {
     Surface(

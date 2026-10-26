@@ -154,31 +154,33 @@ object InsightsCalculator {
      * Something going right. An app that only ever reports problems stops being read.
      */
     private fun quietWin(snapshot: FinancialSnapshot): List<Insight> {
-        val month = snapshot.currentMonth
-        val previous = month.minusMonths(1)
-
-        val hasPrevious = snapshot.expenses.any { YearMonth.from(it.date) == previous }
-        if (!hasPrevious || snapshot.today.dayOfMonth < 25) return emptyList()
+        if (snapshot.today.dayOfMonth < 25) return emptyList()
 
         // Compare like with like. The current month is still running, so it is measured
         // against the same number of days of the previous month rather than against all
         // of it — otherwise a partial month always looks like a saving, and the app would
         // congratulate the user every single month for nothing more than the calendar.
-        val dayOfMonth = snapshot.today.dayOfMonth
-        val nowSpend = SpendingAnalyzer.totalSpendIn(snapshot, month)
-        val thenSpend = SpendingAnalyzer.spendUpToDayIn(snapshot, previous, dayOfMonth)
+        // It is the comparison Reports shows, so the two never disagree, and both stop at
+        // a day the shorter month actually had: on the 31st of March, the 28th, rather than
+        // "the 31st of last month", which February never had.
+        val comparison = elapsedComparison(snapshot, snapshot.currentMonth)
+        if (!comparison.hasPrevious) return emptyList()
+
+        val nowSpend = comparison.spentToComparableDay
+        val thenSpend = comparison.spentBySamePoint
         if (!thenSpend.isPositive || nowSpend >= thenSpend) return emptyList()
 
         val saved = thenSpend - nowSpend
         val percent = (saved.paise.toDouble() / thenSpend.paise * 100).toInt()
         if (percent < 10) return emptyList()
 
+        val day = comparison.comparableDay
         return listOf(
             Insight(
                 kind = InsightKind.GOOD_NEWS,
                 title = "You spent $percent% less than last month",
                 detail = "${IndianFormat.format(saved)} less than you had by the " +
-                    "$dayOfMonth${ordinalSuffix(dayOfMonth)} of last month.",
+                    "$day${ordinalSuffix(day)} of last month.",
                 priority = 50
             )
         )

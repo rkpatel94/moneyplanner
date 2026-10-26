@@ -136,8 +136,83 @@ class MigrationTest {
     }
 
     @Test
+    fun migratingToFiveLeavesExistingExpensesAlone() {
+        helper.createDatabase(TEST_DB, 4).use { db ->
+            db.execSQL(
+                "INSERT INTO categories (id, name, type, iconKey, colorHex, isEssential, " +
+                    "isCustom, isArchived, sortOrder) " +
+                    "VALUES (1, 'Food', 'EXPENSE', 'food', '#FFE8833A', 0, 0, 0, 0)"
+            )
+            db.execSQL(
+                "INSERT INTO expenses (id, amountPaise, description, categoryId, dateEpochDay, " +
+                    "paymentMethod, linkType, notes, createdAtEpochDay) " +
+                    "VALUES (1, 25000, 'Lunch', 1, 20000, 'UPI', 'NONE', '', 20000)"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 5, true, Migrations.MIGRATION_4_5)
+
+        db.query("SELECT description, amountPaise FROM expenses WHERE id = 1").use { cursor ->
+            assertTrue("the expense must survive the migration", cursor.moveToFirst())
+            assertEquals("Lunch", cursor.getString(0))
+            assertEquals(25_000L, cursor.getLong(1))
+        }
+        listOf("tags", "expense_tags", "expense_attachments").forEach { table ->
+            db.query("SELECT COUNT(*) FROM $table").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("a fresh $table table starts empty", 0, cursor.getInt(0))
+            }
+        }
+    }
+
+    @Test
+    fun migratingToSixKeepsEveryBudgetBehavingAsItDid() {
+        helper.createDatabase(TEST_DB, 5).use { db ->
+            db.execSQL(
+                "INSERT INTO categories (id, name, type, iconKey, colorHex, isEssential, " +
+                    "isCustom, isArchived, sortOrder) " +
+                    "VALUES (1, 'Grocery', 'EXPENSE', 'grocery', '#FF3F9E5A', 1, 0, 0, 0)"
+            )
+            db.execSQL(
+                "INSERT INTO budgets (id, categoryId, amountPaise, isActive, notes, " +
+                    "createdAtEpochDay) " +
+                    "VALUES (3, 1, 1200000, 1, 'Weekly shop', 20000)"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 6, true, Migrations.MIGRATION_5_6)
+
+        db.query(
+            "SELECT categoryId, amountPaise, notes, rolloverEnabled, alertThresholdPercent " +
+                "FROM budgets WHERE id = 3"
+        ).use { cursor ->
+            assertTrue("the budget must survive the migration", cursor.moveToFirst())
+            assertEquals(1L, cursor.getLong(0))
+            assertEquals(1_200_000L, cursor.getLong(1))
+            assertEquals("Weekly shop", cursor.getString(2))
+            assertEquals(
+                "an existing budget must not start rolling over on upgrade",
+                0,
+                cursor.getInt(3)
+            )
+            assertEquals(
+                "an existing budget must keep the 80 percent warning it always had",
+                80,
+                cursor.getInt(4)
+            )
+        }
+    }
+
+    /**
+     * Replays every migration from the first schema to the current one.
+     *
+     * The target has to be the version [AppDatabase] is at now, and has to be raised along
+     * with it. Validating against an older schema still passes, but leaves the newest
+     * migrations unreplayed, which is how the 4 to 5 and 5 to 6 steps went untested here.
+     */
+    @Test
     fun migratesAllTheWayFromOne() {
         helper.createDatabase(TEST_DB, 1).close()
-        helper.runMigrationsAndValidate(TEST_DB, 4, true, *Migrations.ALL)
+        helper.runMigrationsAndValidate(TEST_DB, 6, true, *Migrations.ALL)
     }
 }

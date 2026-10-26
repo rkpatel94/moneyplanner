@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Account &amp; Household Setup - Personal Money Planner</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-surface": "#111c2d",
+            "tertiary-fixed": "#ffdbca",
+            "on-tertiary-fixed-variant": "#763300",
+            "on-secondary-container": "#57657a",
+            "outline": "#767683",
+            "tertiary-container": "#331200",
+            "on-primary-fixed-variant": "#353e91",
+            "background": "#f8f9fa",
+            "secondary-fixed": "#d5e3fc",
+            "surface-variant": "#d8e3fb",
+            "on-error-container": "#93000a",
+            "surface-tint": "#4e56ab",
+            "surface-container-lowest": "#ffffff",
+            "secondary": "#515f74",
+            "on-primary": "#ffffff",
+            "on-primary-container": "#747cd3",
+            "on-error": "#ffffff",
+            "surface-dim": "#cfdaf2",
+            "on-tertiary-container": "#cf6721",
+            "surface-container": "#e7eeff",
+            "primary": "#010766",
+            "surface-container-high": "#dee8ff",
+            "inverse-primary": "#bdc2ff",
+            "primary-fixed-dim": "#bdc2ff",
+            "on-background": "#111c2d",
+            "on-tertiary-fixed": "#331200",
+            "on-secondary-fixed": "#0d1c2e",
+            "on-surface-variant": "#464651",
+            "surface-container-low": "#f0f3ff",
+            "on-secondary-fixed-variant": "#3a485b",
+            "inverse-surface": "#263143",
+            "on-tertiary": "#ffffff",
+            "surface-bright": "#f9f9ff",
+            "surface-container-highest": "#d8e3fb",
+            "inverse-on-surface": "#ecf1ff",
+            "tertiary-fixed-dim": "#ffb68e",
+            "secondary-container": "#d5e3fc",
+            "error-container": "#ffdad6",
+            "error": "#ba1a1a",
+            "secondary-fixed-dim": "#b9c7df",
+            "outline-variant": "#e8eaf6",
+            "tertiary": "#000000",
+            "surface": "#f8f9fa",
+            "primary-fixed": "#e0e0ff",
+            "on-secondary": "#ffffff",
+            "on-primary-fixed": "#010766",
+            "primary-container": "#010766"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "none": "0rem",
+            "gutter-tablet": "1rem",
+            "lg": "1.25rem",
+            "md": "0.75rem",
+            "xs": "0.25rem",
+            "gutter-mobile": "0.75rem",
+            "margin-mobile": "1rem",
+            "sm": "0.5rem",
+            "xl": "1.5rem",
+            "base": "1rem",
+            "margin-tablet": "1.5rem",
+            "2xl": "2rem",
+            "2xs": "0.125rem",
+            "3xl": "3rem"
+          },
+          "fontFamily": {
+            "body-lg": ["Inter"],
+            "label-lg": ["Inter"],
+            "title-sm": ["Inter"],
+            "body-sm": ["Inter"],
+            "headline-sm": ["Inter"],
+            "body-md": ["Inter"],
+            "headline-md": ["Inter"],
+            "title-md": ["Inter"],
+            "headline-lg": ["Inter"],
+            "display-lg": ["Inter"],
+            "display-lg-mobile": ["Inter"],
+            "label-md": ["Inter"],
+            "label-sm": ["Inter"]
+          },
+          "fontSize": {
+            "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "label-lg": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+            "title-sm": ["14px", { "lineHeight": "20px", "fontWeight": "600" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+            "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "title-md": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "display-lg": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "display-lg-mobile": ["28px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface font-body-md min-h-screen antialiased flex flex-col items-center">
+<!-- Main Viewport Container (Strict Task-Focused Linear Flow) -->
+<div class="w-full max-w-[560px] bg-background min-h-screen flex flex-col justify-between relative pb-32">
+<!-- Header / Nav bar (Linear Task Flow: suppresses global tabs) -->
+<header class="w-full bg-surface-container-lowest border-b border-outline-variant px-base h-14 flex items-center justify-between sticky top-0 z-30">
+<div class="flex items-center gap-sm">
+<button aria-label="Go Back" class="p-xs text-on-surface-variant hover:bg-surface-container rounded-lg transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]" data-icon="arrow_back">arrow_back</span>
+</button>
+<h1 class="text-title-md font-title-md text-on-surface">Household Profile</h1>
+</div>
+<div class="flex items-center gap-xs">
+<span class="text-label-sm font-label-sm px-2 py-0.5 rounded bg-surface-container-low text-on-surface-variant border border-outline-variant font-medium">STEP 1 OF 2</span>
+</div>
+</header>
+<!-- Content Area -->
+<main class="px-base py-lg space-y-xl flex-1">
+<!-- Primary Title & Status Intro -->
+<div>
+<h2 class="text-headline-lg font-headline-lg text-primary tracking-tight">Account &amp; Household Setup</h2>
+<p class="text-body-md font-body-md text-on-surface-variant mt-1">
+          Review your linked credentials, household accounting structure, and local backup configuration before initializing your books.
+        </p>
+</div>
+<!-- Logged In Google Account Card -->
+<section class="bg-surface-container-lowest border border-outline-variant rounded-xl p-base shadow-none">
+<div class="flex items-center justify-between mb-md">
+<span class="text-label-sm font-label-sm uppercase tracking-wider text-secondary font-semibold">Authenticated Identity</span>
+<!-- Status Pill -->
+<div class="inline-flex items-center gap-1 bg-[#ECFDF5] text-[#047857] border border-[#A7F3D0] px-2 py-0.5 rounded-lg text-label-sm font-label-sm font-semibold">
+<span class="material-symbols-outlined text-[14px]" data-icon="check_circle" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+<span>CONNECTED</span>
+</div>
+</div>
+<div class="flex items-center gap-md">
+<!-- User Avatar Initial -->
+<div class="w-12 h-12 rounded-full bg-primary text-on-primary flex items-center justify-center text-title-md font-title-md shrink-0">
+            AM
+          </div>
+<div class="flex-1 min-w-0">
+<h3 class="text-title-sm font-title-sm text-on-surface truncate">Arjun Mehta</h3>
+<p class="text-body-sm font-body-sm text-on-surface-variant truncate">arjun.mehta@gmail.com</p>
+</div>
+</div>
+<div class="mt-base pt-md border-t border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-1.5 text-on-surface-variant text-body-sm font-body-sm">
+<span class="material-symbols-outlined text-[16px] text-secondary" data-icon="shield">shield</span>
+<span>OAuth 2.0 Restricted Scope</span>
+</div>
+<button class="text-label-sm font-label-sm text-primary font-semibold hover:underline flex items-center gap-0.5">
+            Switch Google Account
+          </button>
+</div>
+</section>
+<!-- Household Configuration Preferences -->
+<section class="space-y-base">
+<h3 class="text-title-sm font-title-sm uppercase tracking-wider text-secondary">Household Preferences</h3>
+<!-- 1. Currency & Region Row -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-base">
+<label class="block text-label-sm font-label-sm text-secondary uppercase font-semibold mb-1">Financial Currency &amp; Region</label>
+<div class="flex items-center justify-between mt-sm p-sm rounded-lg bg-surface-container-low border border-outline-variant">
+<div class="flex items-center gap-md">
+<div class="w-8 h-8 rounded-lg bg-surface-container-lowest border border-outline-variant flex items-center justify-center font-semibold text-primary text-title-sm font-title-sm">
+                ₹
+              </div>
+<div>
+<p class="text-title-sm font-title-sm text-on-surface">Indian Rupee (₹) · Tabular Numbering</p>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Standard Lakhs/Crores separation (₹1,00,000)</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant text-[20px]" data-icon="lock">lock</span>
+</div>
+</div>
+<!-- 2. Household Setup Type -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-base">
+<div class="flex justify-between items-center mb-sm">
+<label class="block text-label-sm font-label-sm text-secondary uppercase font-semibold">Household Setup Type</label>
+<span class="text-label-sm font-label-sm text-on-surface-variant font-normal">Select active model</span>
+</div>
+<div aria-label="Household Setup Type" class="space-y-sm" role="radiogroup">
+<!-- Option 1: Selected (Single Household) -->
+<label class="relative flex items-start p-base rounded-xl border-2 border-primary bg-surface-container-lowest cursor-pointer transition-all">
+<div class="flex items-center h-5 mt-0.5 mr-md">
+<input checked="" class="w-4 h-4 text-primary border-outline focus:ring-0 focus:ring-offset-0" name="household_type" type="radio" value="single"/>
+</div>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-title-sm font-title-sm text-on-surface">Single Household (Personal &amp; Shared)</span>
+<span class="bg-[#EFF6FF] text-[#1E40AF] text-label-sm font-label-sm px-1.5 py-0.5 rounded font-semibold text-[11px]">RECOMMENDED</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+                  Consolidated ledger tracking individual discretionary spending alongside pooled domestic overheads and utility bills.
+                </p>
+</div>
+</label>
+<!-- Option 2: Unselected (Dual-Income Couple) -->
+<label class="relative flex items-start p-base rounded-xl border border-outline-variant bg-surface-container-lowest hover:bg-surface-container-low cursor-pointer transition-all">
+<div class="flex items-center h-5 mt-0.5 mr-md">
+<input class="w-4 h-4 text-primary border-outline focus:ring-0 focus:ring-offset-0" name="household_type" type="radio" value="dual"/>
+</div>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-title-sm font-title-sm text-on-surface">Dual-Income Couple</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+                  Discrete sub-ledgers for separate incomes with automated 50:50 or ratio-based monthly mutual contribution splits.
+                </p>
+</div>
+</label>
+<!-- Option 3: Unselected (Individual Only) -->
+<label class="relative flex items-start p-base rounded-xl border border-outline-variant bg-surface-container-lowest hover:bg-surface-container-low cursor-pointer transition-all">
+<div class="flex items-center h-5 mt-0.5 mr-md">
+<input class="w-4 h-4 text-primary border-outline focus:ring-0 focus:ring-offset-0" name="household_type" type="radio" value="individual"/>
+</div>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-title-sm font-title-sm text-on-surface">Individual Only</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-0.5">
+                  Streamlined single-bookkeeper setup focused exclusively on personal savings, EMIs, and personal wealth accumulation.
+                </p>
+</div>
+</label>
+</div>
+</div>
+<!-- 3. Cloud Backup & Sync Policy -->
+<div class="bg-surface-container-lowest border border-outline-variant rounded-xl p-base">
+<div class="flex items-start gap-md">
+<div class="w-9 h-9 rounded-lg bg-surface-container border border-outline-variant flex items-center justify-center shrink-0 text-primary">
+<span class="material-symbols-outlined text-[20px]" data-icon="cloud_sync">cloud_sync</span>
+</div>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<h4 class="text-title-sm font-title-sm text-on-surface">Private Google Drive Household Vault</h4>
+<span class="text-label-sm font-label-sm px-1.5 py-0.5 rounded bg-surface-container text-on-secondary-fixed-variant font-semibold">AES-256</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-1 leading-relaxed">
+                Only encrypted backups are stored in your private Google Drive app folder. Personal Money Planner servers never receive your transactions or bank account balances.
+              </p>
+</div>
+</div>
+<div class="mt-base pt-base border-t border-outline-variant flex items-center justify-between">
+<div class="pr-base">
+<span class="text-title-sm font-title-sm text-on-surface block">Enable Encrypted Daily Google Drive Backup</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant">Syncs changes securely at 02:00 AM IST</span>
+</div>
+<!-- Toggle switch: ON -->
+<label class="relative inline-flex items-center cursor-pointer shrink-0">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-11 h-6 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-surface-container-lowest after:border-outline-variant after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</div>
+</section>
+<!-- Transparency Note / Guarantee -->
+<div class="bg-surface-container-low border border-outline-variant rounded-xl p-base flex gap-md">
+<span class="material-symbols-outlined text-secondary text-[20px] shrink-0 mt-0.5" data-icon="verified_user">verified_user</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant">
+<strong class="font-semibold text-on-surface">Mathematical Integrity Guarantee:</strong> We operate strictly on zero-knowledge architecture. No financial aggregators (AA), scraping tools, or telemetry trackers inspect your ledger.
+        </p>
+</div>
+</main>
+<!-- Sticky Bottom Primary Action Container -->
+<div class="fixed bottom-0 left-0 right-0 w-full flex justify-center bg-surface-container-lowest border-t border-outline-variant py-base px-base z-40">
+<div class="w-full max-w-[560px] flex flex-col items-center">
+<button class="w-full h-12 bg-primary hover:bg-on-surface text-on-primary rounded-xl text-label-lg font-label-lg font-semibold flex items-center justify-center gap-sm transition-all duration-150 active:scale-[0.99] shadow-sm" type="button">
+<span>Confirm &amp; Enter Dashboard</span>
+<span class="material-symbols-outlined text-[18px]" data-icon="arrow_forward">arrow_forward</span>
+</button>
+<p class="text-label-sm font-label-sm text-on-surface-variant text-center mt-sm">
+          You can adjust sync and household members anytime in More &gt; Settings
+        </p>
+</div>
+</div>
+</div>
+</body></html>

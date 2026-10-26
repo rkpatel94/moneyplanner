@@ -99,6 +99,12 @@ class PersonDetailViewModel @Inject constructor(
         PersonDetailState(
             person = person,
             allocation = SettlementCalculator.allocate(entries, settlements),
+            // The two sides that produce the net figure. A single balance says who is
+            // ahead; it does not say whether that came from one dinner or two years of
+            // them, which is what people actually argue about.
+            summary = person?.let {
+                SettlementCalculator.summaries(listOf(it), entries, settlements).firstOrNull()
+            },
             settlements = settlements.sortedWith(
                 compareByDescending<Settlement> { it.date }.thenByDescending { it.id }
             ),
@@ -273,6 +279,8 @@ class PersonDetailViewModel @Inject constructor(
 data class PersonDetailState(
     val person: Person? = null,
     val allocation: AllocationResult? = null,
+    /** Totals in each direction, for the audit trail under the net position. */
+    val summary: PersonBalanceSummary? = null,
     val settlements: List<Settlement> = emptyList(),
     val today: LocalDate = LocalDate.now(),
     val isLoading: Boolean = true

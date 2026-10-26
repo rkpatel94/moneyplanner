@@ -5,7 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.core.money.sumOfMoney
 import com.moneyplanner.data.repo.SnapshotRepository
+import com.moneyplanner.domain.calc.AttentionCalculator
+import com.moneyplanner.domain.calc.AttentionSummary
 import com.moneyplanner.domain.calc.BalanceCalculator
+import com.moneyplanner.domain.calc.ElapsedComparison
+import com.moneyplanner.domain.calc.elapsedComparison
 import com.moneyplanner.domain.calc.BalanceBreakdown
 import com.moneyplanner.domain.calc.EmergencyFundCalculator
 import com.moneyplanner.domain.calc.EmergencyFundStatus
@@ -21,6 +25,8 @@ import com.moneyplanner.domain.calc.BudgetStatus
 import com.moneyplanner.domain.calc.RunwayCalculator
 import com.moneyplanner.domain.calc.RunwayProjection
 import com.moneyplanner.domain.calc.SpendingAnalyzer
+import com.moneyplanner.domain.calc.UpcomingCalculator
+import com.moneyplanner.domain.calc.UpcomingWindow
 import com.moneyplanner.domain.model.Expense
 import com.moneyplanner.domain.model.FinancialSnapshot
 import com.moneyplanner.di.DefaultDispatcher
@@ -78,13 +84,22 @@ class DashboardViewModel @Inject constructor(
             snapshot.ledgerEntries, snapshot.settlements
         )
 
-        // The next fortnight is what people plan around day to day.
-        val horizonEnd = snapshot.today.plusDays(14)
-        val upcoming = forecast
-            .flatMap { it.items }
-            .filter { !it.date.isBefore(snapshot.today) && !it.date.isAfter(horizonEnd) }
-            .sortedBy { it.date }
-            .take(6)
+        val allItems = forecast.flatMap { it.items }
+
+        // Late money is separated out rather than mixed into the upcoming list. Something
+        // that should already have happened is a different kind of fact from something
+        // scheduled, and running them together hides it among the ordinary.
+        val overdue = allItems.filter { it.isOverdue }
+        val attention = AttentionCalculator.analyse(snapshot, overdue)
+
+        // The mock's "next 7 days" section: what is about to leave, which is the number that
+        // decides whether today is affordable. The card has room for a few rows only, but
+        // its total comes from the whole window, so a busy week cannot read as a quiet one.
+        val comingUp = UpcomingCalculator.window(
+            items = allItems,
+            today = snapshot.today,
+            days = UpcomingCalculator.DEFAULT_DAYS
+        )
 
         val cardDue = snapshot.creditCards
             .filter { it.isActive }
@@ -96,11 +111,14 @@ class DashboardViewModel @Inject constructor(
             breakdown = breakdown,
             thisMonth = thisMonth,
             nextMonth = nextMonth,
-            upcoming = upcoming,
+            comingUp = comingUp,
+            upcoming = comingUp.items.take(UPCOMING_ROWS),
+            attention = attention,
             receivable = receivable,
             payable = payable,
             creditCardOutstanding = cardDue,
             spentThisMonth = SpendingAnalyzer.totalSpendIn(snapshot, snapshot.currentMonth),
+            spentComparison = elapsedComparison(snapshot, snapshot.currentMonth),
             receivedThisMonth = snapshot.incomeTransactions
                 .filter { java.time.YearMonth.from(it.date) == snapshot.currentMonth }
                 .sumOfMoney { it.amount },
@@ -140,11 +158,21 @@ sealed interface DashboardState {
         val breakdown: BalanceBreakdown,
         val thisMonth: MonthForecast,
         val nextMonth: MonthForecast?,
+        /** Everything due in the dashboard's window, and the total stated about it. */
+        val comingUp: UpcomingWindow,
+        /** The first of [comingUp]'s items, as many as the card has room to list. */
         val upcoming: List<ForecastItem>,
+        /** Overdue money and unassigned records, the two things worth interrupting for. */
+        val attention: AttentionSummary,
         val receivable: Money,
         val payable: Money,
         val creditCardOutstanding: Money,
         val spentThisMonth: Money,
+        /**
+         * This month so far against the same days of the last, the comparison Reports
+         * shows, so the dashboard tile and the report can never disagree.
+         */
+        val spentComparison: ElapsedComparison,
         val receivedThisMonth: Money,
         val savedThisMonth: Money,
         val emergencyFund: EmergencyFundStatus,
@@ -162,5 +190,15 @@ sealed interface DashboardState {
     ) : DashboardState {
         val availableBalance: Money get() = breakdown.available
         val expectedRemaining: Money get() = thisMonth.closingBalance
+
+        /** Items in the window the card had no room for, so it can say they exist. */
+        val upcomingNotShown: Int get() = comingUp.items.size - upcoming.size
     }
 }
+
+/**
+ * How many upcoming items the dashboard lists before pointing to the calendar.
+ *
+ * Only the rows are capped. The total above them is taken from every item in the window.
+ */
+private const val UPCOMING_ROWS = 6

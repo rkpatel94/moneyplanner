@@ -148,7 +148,14 @@ class RegressionFixesTest {
             .filter { it.kind == ForecastItemKind.PERSON_INCOMING }
 
         assertEquals("the overdue balance must still appear once", 1, items.size)
-        assertTrue("and be marked overdue", items.single().subtitle.contains("overdue"))
+        // The flag rather than the subtitle. Screens colour rows and build the attention
+        // list from this, so it is the thing that has to be right; prose is for reading.
+        assertTrue("and be marked overdue", items.single().isOverdue)
+        assertEquals(
+            "carried forward to today so it stays visible",
+            date("2026-08-18"),
+            items.single().date
+        )
     }
 
     @Test
@@ -201,6 +208,38 @@ class RegressionFixesTest {
         assertTrue(
             "an identical pace must not be reported as a win",
             InsightsCalculator.generate(snap).none { it.kind == InsightKind.GOOD_NEWS }
+        )
+    }
+
+    /**
+     * The good news names a day the earlier month had.
+     *
+     * On the 31st of March the comparison can only run to the 28th, because that is where
+     * February ends. The insight used to measure the whole of March so far against it and
+     * then speak of "the 31st of last month", a day that never existed.
+     */
+    @Test
+    fun `good news after a short month names a day that month had`() {
+        val snap = FinancialSnapshot(
+            today = date("2026-03-31"),
+            categories = listOf(category(id = 1)),
+            expenses = listOf(
+                expense(id = 1, amount = 20_000, date = "2026-02-10"),
+                expense(id = 2, amount = 10_000, date = "2026-03-10"),
+                // After the 28th, so outside the window February can be compared over.
+                expense(id = 3, amount = 5_000, date = "2026-03-30")
+            )
+        )
+
+        val good = InsightsCalculator.generate(snap).single { it.kind == InsightKind.GOOD_NEWS }
+
+        assertEquals("You spent 50% less than last month", good.title)
+        assertTrue(good.detail, good.detail.contains("by the 28th of last month"))
+        assertTrue(
+            good.detail,
+            good.detail.startsWith(
+                com.moneyplanner.core.money.IndianFormat.format(rupees(10_000)) + " less"
+            )
         )
     }
 

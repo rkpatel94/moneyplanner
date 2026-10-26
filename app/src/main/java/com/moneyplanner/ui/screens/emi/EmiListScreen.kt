@@ -55,13 +55,18 @@ import com.moneyplanner.ui.util.categoryIcon
  * Your Plans: everything the user has committed to paying.
  *
  * Loans lead because they are the largest and least escapable commitment, with bills,
- * cards and yearly expenses reachable underneath. When [onBack] is null the screen is
- * being shown as a bottom-bar tab and so carries no back arrow.
+ * cards and yearly expenses reachable underneath.
+ *
+ * The same screen serves two routes. As the Plans hub ([isPlansHub]) it is titled for
+ * every commitment and opens with a line saying so; otherwise it is titled as the loan
+ * list. Either way it carries a back arrow: neither route is a bottom-bar tab, and the
+ * bar is hidden on both, so the arrow is the only way out on screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmiListScreen(
-    onBack: (() -> Unit)?,
+    onBack: () -> Unit,
+    isPlansHub: Boolean,
     onAddEmi: () -> Unit,
     onOpenEmi: (Long) -> Unit,
     onOpenBills: () -> Unit,
@@ -74,15 +79,13 @@ fun EmiListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (onBack == null) "Your plans" else "EMIs and loans") },
+                title = { Text(if (isPlansHub) "Your plans" else "EMIs and loans") },
                 navigationIcon = {
-                    if (onBack != null) {
-                        IconButton(onClick = onBack) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
-                            )
-                        }
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -109,7 +112,7 @@ fun EmiListScreen(
             contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 96.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (onBack == null) {
+            if (isPlansHub) {
                 item {
                     Text(
                         "Manage your EMIs and upcoming commitments.",

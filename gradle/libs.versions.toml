@@ -17,7 +17,6 @@ coroutines = "1.10.1"
 junit = "4.13.2"
 androidxTestJunit = "1.2.1"
 espresso = "3.6.1"
-desugar = "2.1.5"
 documentfile = "1.0.1"
 
 [libraries]
@@ -56,8 +55,6 @@ androidx-documentfile = { group = "androidx.documentfile", name = "documentfile"
 
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
-
-desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugar" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestJunit" }

@@ -52,19 +52,6 @@ class AccountsViewModel @Inject constructor(
     private val _transferForm = MutableStateFlow(TransferForm())
     val transferForm: StateFlow<TransferForm> = _transferForm.asStateFlow()
 
-    init {
-        // Arrived from the activity feed, which names a transfer to correct. The records
-        // have to load first, since the wording is chosen from the accounts involved.
-        val requested = savedStateHandle.get<String>(Routes.ARG_TRANSFER_ID)?.toLongOrNull()
-        if (requested != null) {
-            viewModelScope.launch {
-                state.filterNot { it.isLoading }.first()
-                    .transfers.firstOrNull { it.id == requested }
-                    ?.let(::startEditingTransfer)
-            }
-        }
-    }
-
     val state: StateFlow<AccountsState> = snapshotRepository.snapshot
         .map { snapshot ->
             AccountsState(
@@ -82,6 +69,24 @@ class AccountsViewModel @Inject constructor(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = AccountsState()
         )
+
+    // Below [state], and it has to stay there. viewModelScope runs on Main.immediate, so a
+    // view model built on the main thread runs this launch straight away, inside the
+    // constructor, and initialisers further down the class have not happened yet. Above
+    // [state], it read a field that was still null and crashed the app every time a
+    // transfer was opened from the activity feed.
+    init {
+        // Arrived from the activity feed, which names a transfer to correct. The records
+        // have to load first, since the wording is chosen from the accounts involved.
+        val requested = savedStateHandle.get<String>(Routes.ARG_TRANSFER_ID)?.toLongOrNull()
+        if (requested != null) {
+            viewModelScope.launch {
+                state.filterNot { it.isLoading }.first()
+                    .transfers.firstOrNull { it.id == requested }
+                    ?.let(::startEditingTransfer)
+            }
+        }
+    }
 
     // ---- Add or edit an account ----------------------------------------------------
 

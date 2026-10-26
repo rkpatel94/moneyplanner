@@ -211,3 +211,111 @@ data class AccountFlow(
     val net: Money get() = moneyIn - moneyOut
     val hasActivity: Boolean get() = moneyIn.isPositive || moneyOut.isPositive
 }
+
+/**
+ * A month in progress against the same stretch of the month before it.
+ *
+ * Comparing nine days of September with the whole of August says nothing except that
+ * September is not finished, and it says it in a way that looks like good news. The only
+ * honest comparison for a partial month is the same number of days of the previous one.
+ *
+ * Kept as a top-level function rather than a member so it reads at the call site as what it
+ * is: a comparison, not a total.
+ */
+fun elapsedComparison(
+    snapshot: FinancialSnapshot,
+    month: YearMonth
+): ElapsedComparison {
+    val today = snapshot.today
+    val isCurrent = YearMonth.from(today) == month
+    val daysInMonth = month.lengthOfMonth()
+
+    // A finished month has elapsed entirely. A future one has not started.
+    val elapsed = when {
+        isCurrent -> today.dayOfMonth
+        month.isBefore(YearMonth.from(today)) -> daysInMonth
+        else -> 0
+    }
+
+    val previous = month.minusMonths(1)
+
+    // February cannot be compared on its 30th. Where the earlier month is shorter, the
+    // window shrinks to what both months actually have, and the label says which day the
+    // comparison really runs to rather than implying a day that never existed.
+    val comparableDay = minOf(elapsed, previous.lengthOfMonth())
+
+    fun spentIn(target: YearMonth, throughDay: Int): Money =
+        snapshot.expenses
+            .filter { YearMonth.from(it.date) == target && it.date.dayOfMonth <= throughDay }
+            .sumOfMoney { it.amount }
+
+    return ElapsedComparison(
+        month = month,
+        daysElapsed = elapsed,
+        daysInMonth = daysInMonth,
+        spentSoFar = spentIn(month, elapsed),
+        previousMonth = previous,
+        comparableDay = comparableDay,
+        // Shrinking only the earlier month's window would still compare 31 days of March
+        // with 28 of February, so this month is cut at the same day before the two meet.
+        spentToComparableDay = spentIn(month, comparableDay),
+        spentBySamePoint = spentIn(previous, comparableDay),
+        // Without a single recorded expense in the earlier month there is nothing to
+        // compare against, and a percentage measured from zero is a meaningless number
+        // that would read as an infinite increase.
+        hasPrevious = snapshot.expenses.any { YearMonth.from(it.date) == previous }
+    )
+}
+
+/**
+ * How much has gone in the elapsed part of a month, and how that compares.
+ *
+ * [comparableDay] can be lower than [daysElapsed] when the previous month was shorter,
+ * which the screen has to say out loud rather than quietly comparing unequal windows. That
+ * is why this month has two figures. [spentSoFar] is the true month to date, which is what
+ * a person wants to know has gone. [spentToComparableDay] stops at the same day as
+ * [spentBySamePoint], and only that pair is compared. The two figures for this month are
+ * the same whenever the window did not have to shrink.
+ */
+data class ElapsedComparison(
+    val month: YearMonth,
+    val daysElapsed: Int,
+    val daysInMonth: Int,
+    /** Everything dated from the 1st up to and including the last elapsed day. */
+    val spentSoFar: Money,
+    val previousMonth: YearMonth,
+    val comparableDay: Int,
+    /** This month up to and including [comparableDay]: the figure that is compared. */
+    val spentToComparableDay: Money,
+    /** The previous month up to and including [comparableDay]. */
+    val spentBySamePoint: Money,
+    val hasPrevious: Boolean
+) {
+    val isPartial: Boolean get() = daysElapsed in 1 until daysInMonth
+
+    /** How far through the month, as a whole percentage. */
+    val elapsedPercent: Int
+        get() = if (daysInMonth == 0) 0 else (daysElapsed * 100) / daysInMonth
+
+    /**
+     * This month against the previous one over the days both have.
+     *
+     * Measured from [spentToComparableDay] rather than [spentSoFar], so that what was spent
+     * on days the previous month never had cannot pass for spending more.
+     */
+    val difference: Money get() = spentToComparableDay - spentBySamePoint
+
+    /** Null when there is no earlier month to measure against, or it recorded nothing. */
+    val changePercent: Int?
+        get() = when {
+            !hasPrevious || spentBySamePoint.paise <= 0L -> null
+            // Clamped before narrowing: ₹1 last month against crores this month is a ratio
+            // a Long holds and an Int does not, and wrapping would flip the sign shown.
+            else -> (difference.paise * 100 / spentBySamePoint.paise)
+                .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+                .toInt()
+        }
+
+    /** True when the window had to shrink because the earlier month was shorter. */
+    val windowShortened: Boolean get() = comparableDay < daysElapsed
+}

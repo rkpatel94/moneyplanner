@@ -549,10 +549,14 @@ fun SettingsScreen(
 
             item {
                 SectionCard(title = "About") {
+                    // A claim anyone can check: the merged manifest declares no INTERNET
+                    // permission, so the only way a record leaves the device is in a file
+                    // the user exports or backs up and then hands on themselves.
                     Text(
                         "Personal Money Planner works entirely offline. It has no internet " +
-                            "permission, no account, and no analytics. Your financial " +
-                            "records never leave this device unless you export them yourself.",
+                            "permission, no account, and no analytics. Your records are " +
+                            "kept only on this device, and nothing leaves it except an " +
+                            "export or backup file you choose to make.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -644,7 +648,20 @@ private fun RestorePreviewDialog(
                     RestoreCountRow("Loans", preview.emis)
                     RestoreCountRow("Bills", preview.bills)
                     RestoreCountRow("Goals", preview.goals)
+                    RestoreCountRow("Budgets", preview.budgets)
                     RestoreCountRow("Accounts", preview.accounts)
+                }
+
+                // Backups only began carrying budgets in format 5. An older file restores
+                // everything else perfectly, but the restore still clears every table, so
+                // the budgets in the app now would vanish without a word unless this says so.
+                if (!preview.includesBudgets) {
+                    StatusPill(
+                        text = "This backup is from an older version that did not save " +
+                            "budgets. Any budgets you have now will be removed.",
+                        containerColor = colors.warningContainer,
+                        contentColor = colors.onWarningContainer
+                    )
                 }
 
                 Text(

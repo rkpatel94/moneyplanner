@@ -45,6 +45,9 @@ interface MaintenanceDao {
     @Query("DELETE FROM user_profile") suspend fun clearProfile()
     @Query("DELETE FROM budgets") suspend fun clearBudgets()
     @Query("DELETE FROM account_transfers") suspend fun clearTransfers()
+    @Query("DELETE FROM expense_tags") suspend fun clearExpenseTags()
+    @Query("DELETE FROM expense_attachments") suspend fun clearExpenseAttachments()
+    @Query("DELETE FROM tags") suspend fun clearTags()
 
     /**
      * Removes everything.
@@ -74,6 +77,14 @@ interface MaintenanceDao {
         clearSharedExpenses()
         clearSettlements()
         clearLedgerEntries()
+        // The links would go with the expenses by cascade, but the tags themselves have no
+        // parent to cascade from, so nothing else ever emptied them. Leftover tags made a
+        // restore drop the file's own tag whenever the name was already taken, and then
+        // fail on the link that pointed at it; they also outlived a full reset. All three
+        // are cleared by name so this list is the whole truth about what a wipe removes.
+        clearExpenseTags()
+        clearExpenseAttachments()
+        clearTags()
         // Expenses hold a restricting reference to categories, so they must go first.
         clearExpenses()
         clearIncomeTransactions()

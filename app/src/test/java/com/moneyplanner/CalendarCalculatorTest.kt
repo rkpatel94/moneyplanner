@@ -85,6 +85,37 @@ class CalendarCalculatorTest {
         assertTrue(rent.isOverdue)
     }
 
+    /**
+     * A late repayment is carried forward to today so it stays in view, which gives it
+     * today's date. Judged by that date alone it read as due today, with no warning on the
+     * calendar, while the dashboard listed the same money as overdue.
+     */
+    @Test
+    fun `a person balance carried forward to today is still overdue`() {
+        val snap = FinancialSnapshot(
+            today = date("2026-09-09"),
+            accounts = listOf(account(id = 1).copy(name = "Bank")),
+            people = listOf(person(id = 1, name = "Neha")),
+            ledgerEntries = listOf(
+                ledgerEntry(
+                    id = 1,
+                    personId = 1,
+                    amount = 3_000,
+                    direction = com.moneyplanner.domain.model.LedgerDirection.I_OWE_THEM,
+                    date = "2026-06-01",
+                    expectedDate = "2026-07-01"
+                )
+            )
+        )
+
+        val neha = CalendarCalculator.entriesFor(snap, september).single { it.title == "Neha" }
+
+        assertEquals(date("2026-09-09"), neha.date)
+        assertTrue(neha.isScheduled)
+        assertTrue("two months late is overdue, whatever day it is shown on", neha.isOverdue)
+        assertEquals("the day it was really due travels with it", date("2026-07-01"), neha.originallyDue)
+    }
+
     @Test
     fun `a bill still ahead of its day is not overdue`() {
         val snap = snapshot(
