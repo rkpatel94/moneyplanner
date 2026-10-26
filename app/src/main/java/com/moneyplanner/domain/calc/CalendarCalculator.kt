@@ -51,7 +51,9 @@ object CalendarCalculator {
                 // same way on the 9th tells the user nothing is wrong. The forecast's own
                 // flag counts too: a late person balance is carried forward to today, so
                 // its date alone would pass it off as due today rather than weeks late.
-                isOverdue = item.isOverdue || item.date.isBefore(snapshot.today)
+                isOverdue = item.isOverdue || item.date.isBefore(snapshot.today),
+                isEstimate = item.isEstimate,
+                originallyDue = item.originallyDue
             )
         }
 
@@ -98,7 +100,18 @@ data class CalendarEntry(
     val amount: Money,
     val direction: ActivityDirection,
     val isScheduled: Boolean,
-    val isOverdue: Boolean
+    val isOverdue: Boolean,
+    /**
+     * An expected amount the user gave as an estimate, such as an electricity bill.
+     * Carried over from the forecast so the calendar can say "estimated" too, rather than
+     * showing a guess with the same certainty as a fixed EMI.
+     */
+    val isEstimate: Boolean = false,
+    /**
+     * The day a late balance was really due, when [date] has been moved forward to today to
+     * keep it in view. Null for everything dated where it falls.
+     */
+    val originallyDue: LocalDate? = null
 ) {
     val isInflow: Boolean get() = direction == ActivityDirection.IN
     val isOutflow: Boolean get() = direction == ActivityDirection.OUT

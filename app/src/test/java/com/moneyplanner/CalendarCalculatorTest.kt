@@ -113,6 +113,7 @@ class CalendarCalculatorTest {
         assertEquals(date("2026-09-09"), neha.date)
         assertTrue(neha.isScheduled)
         assertTrue("two months late is overdue, whatever day it is shown on", neha.isOverdue)
+        assertEquals("the day it was really due travels with it", date("2026-07-01"), neha.originallyDue)
     }
 
     @Test

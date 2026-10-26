@@ -2,22 +2,21 @@ package com.moneyplanner.ui.nav
 
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -67,6 +66,7 @@ import com.moneyplanner.ui.screens.search.SearchScreen
 import com.moneyplanner.ui.screens.sms.SmsImportScreen
 import com.moneyplanner.ui.screens.settings.CategoriesScreen
 import com.moneyplanner.ui.screens.settings.SettingsScreen
+import com.moneyplanner.ui.theme.MoneyTheme
 import dagger.hilt.android.EntryPointAccessors
 
 /** Every route on the bottom bar. A screen outside this set is reached from one of them. */
@@ -97,34 +97,28 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
     Scaffold(
         bottomBar = {
             if (showBars) {
-                NavigationBar {
-                    TopLevelDestination.entries.forEach { destination ->
-                        val selected = backStackEntry?.destination?.hierarchy
-                            ?.any { it.route == destination.route } == true
-
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = { navController.navigateToTopLevel(destination.route) },
-                            icon = {
-                                Icon(
-                                    imageVector = if (selected) {
-                                        destination.selectedIcon
-                                    } else {
-                                        destination.icon
-                                    },
-                                    contentDescription = destination.label
-                                )
-                            },
-                            label = { Text(destination.label) }
-                        )
-                    }
-                }
+                FloatingDock(
+                    currentDestination = backStackEntry?.destination,
+                    onSelect = { navController.navigateToTopLevel(it.route) }
+                )
             }
         },
         floatingActionButton = {
             if (currentRoute == Routes.DASHBOARD || currentRoute == Routes.TRANSACTIONS) {
-                FloatingActionButton(onClick = { navController.navigate(Routes.ADD_EXPENSE) }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add expense")
+                // A marigold squircle: the one loud control on the page, because recording
+                // a spend is the thing people open the app to do.
+                FloatingActionButton(
+                    onClick = { navController.navigate(Routes.ADD_EXPENSE) },
+                    shape = RoundedCornerShape(22.dp),
+                    containerColor = MoneyTheme.colors.accent,
+                    contentColor = MoneyTheme.colors.onAccent,
+                    modifier = Modifier.size(64.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Add expense",
+                        modifier = Modifier.size(30.dp)
+                    )
                 }
             }
         }

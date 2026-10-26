@@ -8,6 +8,8 @@ import com.moneyplanner.data.repo.SnapshotRepository
 import com.moneyplanner.domain.calc.AttentionCalculator
 import com.moneyplanner.domain.calc.AttentionSummary
 import com.moneyplanner.domain.calc.BalanceCalculator
+import com.moneyplanner.domain.calc.ElapsedComparison
+import com.moneyplanner.domain.calc.elapsedComparison
 import com.moneyplanner.domain.calc.BalanceBreakdown
 import com.moneyplanner.domain.calc.EmergencyFundCalculator
 import com.moneyplanner.domain.calc.EmergencyFundStatus
@@ -116,6 +118,7 @@ class DashboardViewModel @Inject constructor(
             payable = payable,
             creditCardOutstanding = cardDue,
             spentThisMonth = SpendingAnalyzer.totalSpendIn(snapshot, snapshot.currentMonth),
+            spentComparison = elapsedComparison(snapshot, snapshot.currentMonth),
             receivedThisMonth = snapshot.incomeTransactions
                 .filter { java.time.YearMonth.from(it.date) == snapshot.currentMonth }
                 .sumOfMoney { it.amount },
@@ -165,6 +168,11 @@ sealed interface DashboardState {
         val payable: Money,
         val creditCardOutstanding: Money,
         val spentThisMonth: Money,
+        /**
+         * This month so far against the same days of the last, the comparison Reports
+         * shows, so the dashboard tile and the report can never disagree.
+         */
+        val spentComparison: ElapsedComparison,
         val receivedThisMonth: Money,
         val savedThisMonth: Money,
         val emergencyFund: EmergencyFundStatus,

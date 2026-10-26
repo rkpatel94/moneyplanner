@@ -14,15 +14,18 @@ import androidx.compose.ui.unit.sp
 import com.moneyplanner.R
 
 /**
- * Typography for the Bharat Wealth Framework.
+ * Typography for the "Kal" design.
  *
- * Inter is bundled rather than fetched, because the app has no internet permission and a
- * downloadable font would simply never arrive. It ships as a variable font, so each weight
- * is derived from the `wght` axis instead of carrying four separate files.
+ * Two bundled faces, because the app has no internet permission and a downloadable font
+ * would simply never arrive. Both ship as variable fonts, so every weight comes from one
+ * file's `wght` axis rather than a file per weight.
  *
- * Every style that renders an amount sets `tnum`, which switches Inter to tabular figures
- * so a column of rupee values lines up digit for digit instead of shuffling as the numbers
- * change. In a list of transactions that is the difference between scannable and noisy.
+ * - **Anek Latin**, from Ek Type in India, carries character: hero balances, screen titles,
+ *   card titles, verdicts. Its sister faces, Anek Devanagari and Anek Gujarati, are drawn to
+ *   match, which is where Hindi and Gujarati will come from when the app is translated.
+ * - **Inter** carries everything read rather than glanced at: body text, labels, and every
+ *   amount in a list. Those styles set `tnum`, switching Inter to tabular figures so a column
+ *   of rupee values lines up digit for digit instead of shuffling as the numbers change.
  */
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
 private fun interWeight(weight: Int) = Font(
@@ -38,81 +41,97 @@ val Inter = FontFamily(
     interWeight(700)
 )
 
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+private fun anekWeight(weight: Int) = Font(
+    resId = R.font.anek_latin,
+    weight = FontWeight(weight),
+    variationSettings = FontVariation.Settings(
+        FontVariation.weight(weight),
+        FontVariation.width(100f)
+    )
+)
+
+val Anek = FontFamily(
+    anekWeight(500),
+    anekWeight(600),
+    anekWeight(700),
+    anekWeight(800)
+)
+
 /** Applied to anything showing money, so figures align vertically. */
 const val TABULAR_FIGURES = "tnum"
 
 val MoneyTypography = Typography(
-    // display-lg: reserved for a primary balance and nothing else.
+    // The hero balance, and nothing else at this size.
     displayLarge = TextStyle(
-        fontFamily = Inter,
+        fontFamily = Anek,
         fontWeight = FontWeight.Bold,
-        fontSize = 48.sp,
+        fontSize = 52.sp,
         lineHeight = 56.sp,
-        letterSpacing = (-0.02).em,
-        fontFeatureSettings = TABULAR_FIGURES
+        letterSpacing = (-0.02).em
     ),
+    // A screen's headline figure, such as a month's expected remainder.
     displayMedium = TextStyle(
-        fontFamily = Inter,
+        fontFamily = Anek,
         fontWeight = FontWeight.Bold,
-        fontSize = 36.sp,
+        fontSize = 40.sp,
         lineHeight = 44.sp,
-        letterSpacing = (-0.02).em,
-        fontFeatureSettings = TABULAR_FIGURES
+        letterSpacing = (-0.01).em
     ),
-    // numeric-display: the standard figure size on cards.
+    // The standard figure size on a tile.
     displaySmall = TextStyle(
-        fontFamily = Inter,
+        fontFamily = Anek,
         fontWeight = FontWeight.Bold,
         fontSize = 32.sp,
-        lineHeight = 40.sp,
-        fontFeatureSettings = TABULAR_FIGURES
-    ),
-    headlineLarge = TextStyle(
-        fontFamily = Inter,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 28.sp,
         lineHeight = 36.sp
     ),
-    // headline-lg-mobile
+    // Screen titles.
+    headlineLarge = TextStyle(
+        fontFamily = Anek,
+        fontWeight = FontWeight.Bold,
+        fontSize = 30.sp,
+        lineHeight = 34.sp,
+        letterSpacing = (-0.01).em
+    ),
     headlineMedium = TextStyle(
-        fontFamily = Inter,
+        fontFamily = Anek,
         fontWeight = FontWeight.SemiBold,
         fontSize = 24.sp,
-        lineHeight = 32.sp
-    ),
-    headlineSmall = TextStyle(
-        fontFamily = Inter,
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 22.sp,
         lineHeight = 30.sp
     ),
-    // title-lg
-    titleLarge = TextStyle(
-        fontFamily = Inter,
+    headlineSmall = TextStyle(
+        fontFamily = Anek,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 20.sp,
+        fontSize = 22.sp,
         lineHeight = 28.sp
+    ),
+    // Card titles, set in the display face so every card reads as one family.
+    titleLarge = TextStyle(
+        fontFamily = Anek,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 21.sp,
+        lineHeight = 26.sp
     ),
     titleMedium = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 17.sp,
-        lineHeight = 24.sp
+        fontSize = 16.sp,
+        lineHeight = 22.sp,
+        fontFeatureSettings = TABULAR_FIGURES
     ),
     titleSmall = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Medium,
-        fontSize = 15.sp,
+        fontSize = 14.sp,
         lineHeight = 20.sp
     ),
-    // body-lg
     bodyLarge = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Normal,
         fontSize = 16.sp,
         lineHeight = 24.sp
     ),
-    // body-md, the accessibility floor for readable text.
+    // The accessibility floor for readable text.
     bodyMedium = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Normal,
@@ -127,12 +146,11 @@ val MoneyTypography = Typography(
     ),
     labelLarge = TextStyle(
         fontFamily = Inter,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.1.sp
     ),
-    // label-lg from the framework: small metadata and section headers.
     labelMedium = TextStyle(
         fontFamily = Inter,
         fontWeight = FontWeight.Medium,
@@ -150,14 +168,25 @@ val MoneyTypography = Typography(
 )
 
 /**
- * Rounded shape language. Cards and bottom sheets use the large 24dp radius that gives the
- * framework its soft, approachable framing; controls stay at 8dp so they still read as
- * things you press rather than as containers.
+ * The uppercase micro-label: confidence pills, overlines such as "AVAILABLE TO SPEND", and
+ * section captions. Spaced out a little so small capitals stay legible.
+ */
+val PillLabelStyle = TextStyle(
+    fontFamily = Inter,
+    fontWeight = FontWeight.SemiBold,
+    fontSize = 11.sp,
+    lineHeight = 14.sp,
+    letterSpacing = 0.08.em
+)
+
+/**
+ * Rounded, expressive shapes. Cards use 24dp and hero cards and sheets 28dp; inputs sit at
+ * 16dp; buttons, chips and pills are fully rounded wherever they are drawn.
  */
 val MoneyShapes = Shapes(
-    extraSmall = RoundedCornerShape(4.dp),
-    small = RoundedCornerShape(8.dp),
-    medium = RoundedCornerShape(12.dp),
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(16.dp),
     large = RoundedCornerShape(24.dp),
     extraLarge = RoundedCornerShape(28.dp)
 )

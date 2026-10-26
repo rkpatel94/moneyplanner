@@ -1,6 +1,28 @@
 package com.moneyplanner.ui.screens.forecast
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.ShoppingBasket
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.UnfoldMore
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.moneyplanner.ui.theme.PillLabelStyle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -17,24 +39,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CreditCard
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.ShoppingBag
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.WarningAmber
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -63,12 +76,10 @@ import com.moneyplanner.domain.calc.ShortfallExplanation
 import com.moneyplanner.ui.components.Confidence
 import com.moneyplanner.ui.components.ConfidencePill
 import com.moneyplanner.ui.components.EmptyState
-import com.moneyplanner.ui.components.IconWash
 import com.moneyplanner.ui.components.InOutBar
 import com.moneyplanner.ui.components.LoadingState
 import com.moneyplanner.ui.components.MoneyText
 import com.moneyplanner.ui.components.SectionCard
-import com.moneyplanner.ui.components.StatusPill
 import com.moneyplanner.ui.components.SummaryRow
 import com.moneyplanner.ui.theme.MoneyTheme
 import com.moneyplanner.di.DefaultDispatcher
@@ -130,6 +141,7 @@ class ForecastViewModel @Inject constructor(
             hasPlanningData = snapshot.incomeSources.isNotEmpty() ||
                 snapshot.bills.isNotEmpty() ||
                 snapshot.emis.isNotEmpty(),
+            today = snapshot.today,
             isLoading = false
         )
     }
@@ -153,6 +165,8 @@ data class ForecastState(
     /** What the projection is built from, so its confidence can be judged. */
     val basis: ForecastBasis = ForecastBasis(),
     val hasPlanningData: Boolean = false,
+    /** From the snapshot, so "in 41 days" stays right across midnight. */
+    val today: java.time.LocalDate = java.time.LocalDate.now(),
     val isLoading: Boolean = true
 ) {
     val selected: MonthForecast? get() = months.getOrNull(selectedIndex)
@@ -161,10 +175,10 @@ data class ForecastState(
 /**
  * Money Ahead Forecast.
  *
- * A month is chosen from the chip row and then answered with a single figure: what is
- * expected to be left. The split bar underneath shows money in against money out at a
- * glance, and the breakdown says exactly which commitments produced it — because a
- * projection a person cannot interrogate is a projection they will not trust.
+ * A month is chosen from the horizon strip and then answered with a single figure: what is
+ * expected to be left. Under it, money in against money out, and then every line that
+ * produced it, each saying how sure the app is about it — because a projection a person
+ * cannot interrogate is a projection they will not trust.
  */
 @Composable
 fun ForecastScreen(
@@ -183,7 +197,7 @@ fun ForecastScreen(
 
     if (!state.hasPlanningData) {
         EmptyState(
-            icon = Icons.Default.TrendingUp,
+            icon = Icons.AutoMirrored.Filled.TrendingUp,
             title = "Nothing to forecast yet",
             message = "Add your salary, EMIs and regular bills. The app will then show " +
                 "what you are expected to have left in each of the coming months."
@@ -193,76 +207,39 @@ fun ForecastScreen(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 96.dp),
+        contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 32.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Column {
-                Text(
-                    "Money ahead forecast",
-                    style = MaterialTheme.typography.headlineMedium
-                )
-                Text(
-                    if (state.months.isEmpty()) {
-                        "Built only from what you have entered."
-                    } else {
-                        DateUtil.formatMonthShort(state.months.first().month) + " to " +
-                            DateUtil.formatMonthShort(state.months.last().month)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.textSecondary
-                )
-            }
+            ForecastHeader(
+                months = state.months,
+                selectedIndex = state.selectedIndex,
+                onSelect = viewModel::selectMonth
+            )
+        }
+
+        item {
+            MonthHorizonStrip(
+                months = state.months,
+                selectedIndex = state.selectedIndex,
+                onSelect = viewModel::selectMonth
+            )
         }
 
         // The alarm comes before the detail. Somebody who is going to run short in
         // December should not have to tap through eleven month chips to find out.
         state.shortfall?.let { shortfall ->
-            item { ShortfallCard(shortfall, onOpenCalendar) }
-        }
-
-        item { ForecastBasisCard(state.basis) }
-
-        item {
-            Row(
-                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                state.months.forEachIndexed { index, month ->
-                    FilterChip(
-                        selected = index == state.selectedIndex,
-                        onClick = { viewModel.selectMonth(index) },
-                        label = {
-                            Text(DateUtil.formatMonthShort(month.month).substringBefore(" "))
-                        },
-                        shape = MaterialTheme.shapes.small,
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    )
-                }
-            }
+            item { ShortfallCard(shortfall, state.today, onOpenCalendar) }
         }
 
         val month = state.selected
         if (month != null) {
-            item { ExpectedRemainingCard(month) }
+            item { ForecastHeroCard(month) }
+            item { ForecastBasisCard(state.basis) }
+            item { AffordBanner(onOpenAffordability) }
             item { BreakdownCard(month) }
-            item { DatedItemsCard(month) }
-
-            item {
-                SectionCard(
-                    title = "Thinking about a purchase?",
-                    modifier = Modifier.clickable(onClick = onOpenAffordability)
-                ) {
-                    Text(
-                        "Check it against these months before you commit.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+        } else {
+            item { ForecastBasisCard(state.basis) }
         }
 
         item {
@@ -270,109 +247,417 @@ fun ForecastScreen(
                 "Each month starts with the closing balance of the one before it, so a " +
                     "shortfall is carried forward rather than reset.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = colors.textTertiary
             )
         }
     }
 }
 
-/** The headline figure, with the in-against-out split directly beneath it. */
+/**
+ * The screen title, with the chosen month in a pill beside it. The pill opens the full
+ * list of months, for somebody who would rather pick than scroll the strip.
+ */
+@Composable
+private fun ForecastHeader(
+    months: List<MonthForecast>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit
+) {
+    val colors = MoneyTheme.colors
+    var choosing by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(50)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "Forecast",
+            style = MaterialTheme.typography.headlineLarge,
+            color = colors.display,
+            modifier = Modifier.weight(1f)
+        )
+        months.getOrNull(selectedIndex)?.let { selected ->
+            Box {
+                Row(
+                    modifier = Modifier
+                        .clip(shape)
+                        .background(colors.sunken)
+                        .border(1.dp, colors.cardBorder, shape)
+                        .clickable(onClickLabel = "Choose a month") { choosing = true }
+                        .padding(horizontal = 14.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        DateUtil.formatMonth(selected.month),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.textPrimary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        Icons.Default.UnfoldMore,
+                        contentDescription = null,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
+                    months.forEachIndexed { index, month ->
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        DateUtil.formatMonth(month.month),
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Spacer(Modifier.width(16.dp))
+                                    MoneyText(
+                                        money = month.closingBalance,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = if (month.isShortfall) {
+                                            colors.negative
+                                        } else {
+                                            colors.textSecondary
+                                        }
+                                    )
+                                }
+                            },
+                            onClick = {
+                                onSelect(index)
+                                choosing = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The months ahead as a strip of chips, each carrying its own projected closing balance, so
+ * the shape of the next year is readable before any chip is tapped. Every one of these is a
+ * projection, so unchosen months are drawn light; the chosen one is marigold.
+ */
+@Composable
+private fun MonthHorizonStrip(
+    months: List<MonthForecast>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit
+) {
+    val colors = MoneyTheme.colors
+
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${months.size}-MONTH HORIZON",
+                style = PillLabelStyle,
+                color = colors.textTertiary,
+                modifier = Modifier.weight(1f)
+            )
+            months.firstOrNull()?.takeIf { it.isCurrentMonth }?.let { current ->
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .background(colors.accent, CircleShape)
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    DateUtil.formatMonthShort(current.month).substringBefore(" ").uppercase() +
+                        " IN PROGRESS",
+                    style = PillLabelStyle,
+                    color = colors.warning
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            months.forEachIndexed { index, month ->
+                val selected = index == selectedIndex
+                val shape = RoundedCornerShape(18.dp)
+                Column(
+                    modifier = Modifier
+                        .clip(shape)
+                        .background(if (selected) colors.accent else colors.card)
+                        .then(
+                            if (selected) {
+                                Modifier
+                            } else {
+                                Modifier.border(1.dp, colors.cardBorder, shape)
+                            }
+                        )
+                        .selectable(
+                            selected = selected,
+                            role = Role.Tab,
+                            onClick = { onSelect(index) }
+                        )
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        DateUtil.formatMonthShort(month.month),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (selected) colors.onAccent else colors.textPrimary
+                    )
+                    MoneyText(
+                        money = month.closingBalance,
+                        style = MaterialTheme.typography.labelMedium,
+                        compact = true,
+                        color = when {
+                            selected -> colors.onAccent
+                            month.isShortfall -> colors.negative
+                            else -> colors.forecast
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
 /**
  * The month the money is projected to run out, and the payment that takes it there.
  *
- * Calm on purpose. A red full-bleed panel about a date four months away is how somebody
- * decides the app is stressful and stops opening it. This states the date, the figure and
- * the cause, then offers the screen where it can be dealt with. No score, no exclamation,
- * no advice about spending less.
+ * Calm on purpose. A red full-bleed panel about a date months away is how somebody decides
+ * the app is stressful and stops opening it. This states the date, the figure and the
+ * cause, then offers the screen where it can be dealt with. No score, no exclamation, no
+ * advice about spending less.
  */
 @Composable
 private fun ShortfallCard(
     shortfall: ShortfallExplanation,
+    today: java.time.LocalDate,
     onOpenCalendar: (YearMonth) -> Unit
 ) {
     val colors = MoneyTheme.colors
+    val monthName = DateUtil.formatMonth(shortfall.month)
+    val daysAway = java.time.temporal.ChronoUnit.DAYS.between(
+        today,
+        shortfall.culpritDate ?: shortfall.month.atDay(1)
+    )
 
-    SectionCard(containerColor = colors.negativeContainer) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Default.WarningAmber,
-                contentDescription = null,
-                tint = colors.negative,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "POSSIBLE SHORTFALL",
-                style = MaterialTheme.typography.labelMedium,
-                color = colors.negative
-            )
-        }
-
-        Spacer(Modifier.height(14.dp))
-        Row(verticalAlignment = Alignment.Bottom) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "Month",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.textSecondary
-                )
-                Text(
-                    DateUtil.formatMonth(shortfall.month),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = colors.textPrimary
+    SectionCard(containerColor = colors.negativeContainer, borderColor = colors.negativeBorder) {
+        Row(verticalAlignment = Alignment.Top) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(colors.negative.copy(alpha = 0.12f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.WarningAmber,
+                    contentDescription = null,
+                    tint = colors.negative,
+                    modifier = Modifier.size(20.dp)
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "PROJECTED SHORTFALL",
+                        style = PillLabelStyle,
+                        color = colors.negative,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (daysAway > 0) {
+                        Text(
+                            "in $daysAway days",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.negative,
+                            modifier = Modifier
+                                .background(colors.card.copy(alpha = 0.7f), RoundedCornerShape(50))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
                 Text(
-                    "Projected to end at",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.textSecondary
+                    "$monthName is projected to end at",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.textPrimary
                 )
                 MoneyText(
                     money = shortfall.projectedBalance,
                     style = MaterialTheme.typography.headlineMedium,
                     color = colors.negative
                 )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    buildString {
+                        if (shortfall.hasCulprit) {
+                            append(shortfall.culpritTitle)
+                            append(" (")
+                            append(IndianFormat.format(shortfall.culpritAmount))
+                            append(")")
+                            val relief = shortfall.daysUntilRelief
+                            if (relief != null && relief > 0) {
+                                append(" falls ")
+                                append(relief)
+                                append(if (relief == 1L) " day" else " days")
+                                append(" before the next money is expected.")
+                            } else {
+                                append(" is the largest payment that month.")
+                            }
+                        } else {
+                            // No single payment dominates, so naming one would point at
+                            // the wrong thing. Ordinary spending adding up is a different
+                            // problem.
+                            append(
+                                "No single payment causes this. The month's ordinary " +
+                                    "spending is projected to outrun what is expected to come in."
+                            )
+                        }
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.textSecondary
+                )
+                TextButton(
+                    onClick = { onOpenCalendar(shortfall.month) },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        "See what is dated in ${monthName.substringBefore(" ")}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = colors.negative
+                    )
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = colors.negative,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The headline figure for the chosen month, labelled as a forecast, with money in against
+ * money out in an inset beneath it.
+ */
+@Composable
+private fun ForecastHeroCard(month: MonthForecast) {
+    val colors = MoneyTheme.colors
+    val inflow = month.totalInflow
+    val outflow = month.totalOutflow
+    val total = inflow + outflow
+    val inflowFraction = if (total.paise <= 0L) 0.5f
+    else (inflow.paise.toDouble() / total.paise).toFloat()
+    val monthName = DateUtil.formatMonth(month.month).substringBefore(" ")
+
+    SectionCard(contentPadding = 20.dp) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "$monthName forecast",
+                style = MaterialTheme.typography.bodyLarge,
+                color = colors.textSecondary,
+                modifier = Modifier.weight(1f)
+            )
+            ConfidencePill(Confidence.FORECAST)
+        }
+        Spacer(Modifier.height(6.dp))
+        MoneyText(
+            money = month.closingBalance,
+            style = MaterialTheme.typography.displayMedium,
+            color = if (month.isShortfall) colors.negative else colors.display
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .background(
+                        if (month.isShortfall) colors.negative else colors.positive,
+                        CircleShape
+                    )
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                "Projected closing balance on " +
+                    DateUtil.formatDayMonth(month.month.atEndOfMonth()),
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textSecondary
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(colors.sunken, RoundedCornerShape(16.dp))
+                .padding(14.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                FlowFigure("Expected in", inflow, colors.positive, Modifier.weight(1f))
+                Spacer(Modifier.width(12.dp))
+                FlowFigure("Committed out", outflow, colors.negative, Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(12.dp))
+            InOutBar(
+                inflowFraction = inflowFraction,
+                height = 8.dp,
+                description = "${IndianFormat.format(inflow)} coming in against " +
+                    "${IndianFormat.format(outflow)} going out"
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Net this month",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.textTertiary,
+                    modifier = Modifier.weight(1f)
+                )
+                MoneyText(
+                    money = inflow - outflow,
+                    style = MaterialTheme.typography.labelLarge,
+                    showSign = true,
+                    color = if ((inflow - outflow).isNegative) colors.negative else colors.textPrimary
+                )
             }
         }
 
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(12.dp))
         Text(
-            buildString {
-                if (shortfall.hasCulprit) {
-                    append(shortfall.culpritTitle)
-                    append(" (")
-                    append(IndianFormat.format(shortfall.culpritAmount))
-                    append(")")
-                    val relief = shortfall.daysUntilRelief
-                    if (relief != null && relief > 0) {
-                        append(" falls ")
-                        append(relief)
-                        append(if (relief == 1L) " day" else " days")
-                        append(" before the next money is expected.")
-                    } else {
-                        append(" is the largest payment that month.")
-                    }
-                } else {
-                    // No single payment dominates, so naming one would point at the wrong
-                    // thing. Ordinary spending adding up is a different problem.
-                    append(
-                        "No single payment causes this. The month's ordinary spending is " +
-                            "projected to outrun what is expected to come in."
-                    )
-                }
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.textPrimary
+            "Starts with ${IndianFormat.format(month.openingBalance)} carried in from " +
+                "the month before.",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.textTertiary
         )
+    }
+}
 
-        Spacer(Modifier.height(14.dp))
-        OutlinedButton(
-            onClick = { onOpenCalendar(shortfall.month) },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("See what is dated that month")
+@Composable
+private fun FlowFigure(label: String, amount: Money, tint: Color, modifier: Modifier = Modifier) {
+    val colors = MoneyTheme.colors
+    Column(modifier = modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .background(tint, RoundedCornerShape(2.dp))
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium, color = colors.textSecondary)
         }
+        MoneyText(
+            money = amount,
+            style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
+            color = tint
+        )
     }
 }
 
@@ -387,17 +672,28 @@ private fun ShortfallCard(
 private fun ForecastBasisCard(basis: ForecastBasis) {
     val colors = MoneyTheme.colors
 
-    SectionCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            ConfidencePill(Confidence.FORECAST)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "What this is built from",
-                style = MaterialTheme.typography.labelMedium,
-                color = colors.textSecondary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(colors.sunken, RoundedCornerShape(20.dp))
+            .border(1.dp, colors.cardBorder, RoundedCornerShape(20.dp))
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(colors.forecastContainer, CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                Icons.Default.Insights,
+                contentDescription = null,
+                tint = colors.forecast,
+                modifier = Modifier.size(18.dp)
             )
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.width(12.dp))
         Text(
             basis.describe(),
             style = MaterialTheme.typography.bodyMedium,
@@ -407,228 +703,140 @@ private fun ForecastBasisCard(basis: ForecastBasis) {
 }
 
 @Composable
-private fun ExpectedRemainingCard(month: MonthForecast) {
+private fun AffordBanner(onOpenAffordability: () -> Unit) {
     val colors = MoneyTheme.colors
-    val inflow = month.totalInflow
-    val outflow = month.totalOutflow
-    val total = inflow + outflow
-    val inflowFraction = if (total.paise <= 0L) 0.5f
-    else (inflow.paise.toDouble() / total.paise).toFloat()
+    val shape = RoundedCornerShape(20.dp)
 
-    SectionCard(contentPadding = 20.dp) {
-        Text(
-            "Expected remaining",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(Modifier.height(4.dp))
-        MoneyText(
-            money = month.closingBalance,
-            style = MaterialTheme.typography.displaySmall,
-            color = if (month.isShortfall) colors.negative else MaterialTheme.colorScheme.primary
-        )
-
-        Spacer(Modifier.height(16.dp))
-        InOutBar(
-            inflowFraction = inflowFraction,
-            description = "${IndianFormat.format(inflow)} coming in against " +
-                "${IndianFormat.format(outflow)} going out"
-        )
-
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FlowTile(
-                label = "Money coming",
-                amount = inflow,
-                tint = colors.positive,
-                positive = true,
-                modifier = Modifier.weight(1f)
-            )
-            FlowTile(
-                label = "Money going",
-                amount = outflow,
-                tint = colors.negative,
-                positive = false,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        if (month.isShortfall) {
-            Spacer(Modifier.height(14.dp))
-            StatusPill(
-                text = "Projected to fall short by ${IndianFormat.format(month.closingBalance.abs())}",
-                containerColor = colors.warningContainer,
-                contentColor = colors.onWarningContainer
-            )
-        }
-
-        Spacer(Modifier.height(14.dp))
-        Text(
-            "Starts with ${IndianFormat.format(month.openingBalance)} carried in from " +
-                "the month before.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun FlowTile(
-    label: String,
-    amount: Money,
-    tint: Color,
-    positive: Boolean,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(colors.accentSoft)
+            .border(1.dp, colors.warningBorder, shape)
+            .clickable(onClick = onOpenAffordability)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                label,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = (if (positive) "+" else "−") + IndianFormat.format(amount),
-                style = MaterialTheme.typography.titleLarge,
-                color = tint
-            )
-        }
+        Icon(
+            Icons.Default.ShoppingCart,
+            contentDescription = null,
+            tint = colors.warning,
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(Modifier.width(12.dp))
+        Text(
+            "Thinking about a purchase? Check it with Can I afford it?",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onWarningContainer,
+            modifier = Modifier.weight(1f)
+        )
+        Icon(
+            Icons.Default.ChevronRight,
+            contentDescription = null,
+            tint = colors.onWarningContainer
+        )
     }
 }
 
-/** Which commitments make up the month, each with the icon its kind carries elsewhere. */
+/** Rows shown before the breakdown offers to show the rest. */
+private const val BREAKDOWN_ROWS = 8
+
+/**
+ * Every line behind the month's figure, each with its confidence. Scheduled payments are
+ * UPCOMING, guesses are ESTIMATED and anything late is OVERDUE; everyday spending, which no
+ * schedule describes, is always an estimate and says so.
+ */
 @Composable
 private fun BreakdownCard(month: MonthForecast) {
     val colors = MoneyTheme.colors
+    var showAll by remember(month.month) { mutableStateOf(false) }
 
     val rows = buildList {
-        if (month.expectedIncome.isPositive) {
-            add(BreakdownRow("Income", month.expectedIncome, Icons.Default.ArrowDownward, true))
-        }
-        if (month.expectedIncomingFromPeople.isPositive) {
+        month.items.forEach { item ->
             add(
-                BreakdownRow(
-                    "Money coming in",
-                    month.expectedIncomingFromPeople,
-                    Icons.Default.Groups,
-                    true
-                )
-            )
-        }
-        if (month.emiOutflow.isPositive) {
-            add(BreakdownRow("EMIs", month.emiOutflow, Icons.Default.AccountBalance, false))
-        }
-        if (month.billsOutflow.isPositive) {
-            add(BreakdownRow("Bills", month.billsOutflow, Icons.Default.CalendarMonth, false))
-        }
-        if (month.annualOutflow.isPositive) {
-            add(
-                BreakdownRow(
-                    "Yearly expenses",
-                    month.annualOutflow,
-                    Icons.Default.CalendarMonth,
-                    false
-                )
-            )
-        }
-        if (month.creditCardOutflow.isPositive) {
-            add(
-                BreakdownRow(
-                    "Credit card",
-                    month.creditCardOutflow,
-                    Icons.Default.CreditCard,
-                    false
-                )
-            )
-        }
-        if (month.owedToPeopleOutflow.isPositive) {
-            add(
-                BreakdownRow(
-                    "Money to repay",
-                    month.owedToPeopleOutflow,
-                    Icons.Default.Groups,
-                    false
+                BreakdownLine(
+                    title = item.title,
+                    // A late balance is carried forward to today to stay in view, but the
+                    // row says the day it was really due, beside its OVERDUE pill.
+                    subtitle = DateUtil.formatDayMonth(item.originallyDue ?: item.date) +
+                        item.subtitle.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                    amount = item.amount,
+                    isInflow = item.isInflow,
+                    icon = iconFor(item.kind),
+                    confidence = when {
+                        item.isOverdue -> Confidence.OVERDUE
+                        item.isEstimate -> Confidence.ESTIMATED
+                        else -> Confidence.UPCOMING
+                    }
                 )
             )
         }
         if (month.estimatedEverydaySpend.isPositive) {
             add(
-                BreakdownRow(
-                    "Everyday spending",
-                    month.estimatedEverydaySpend,
-                    Icons.Default.ShoppingBag,
-                    false,
-                    supporting = if (month.isCurrentMonth) {
+                BreakdownLine(
+                    title = "Everyday spending",
+                    subtitle = if (month.isCurrentMonth) {
                         "Estimated for the rest of the month"
                     } else {
                         "Estimated from your own history"
-                    }
+                    },
+                    amount = month.estimatedEverydaySpend,
+                    isInflow = false,
+                    icon = Icons.Default.ShoppingBasket,
+                    confidence = Confidence.ESTIMATED,
+                    isEveryday = true
                 )
             )
         }
     }
 
-    SectionCard(title = "Expected breakdown") {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Expected breakdown",
+                style = MaterialTheme.typography.titleLarge,
+                color = colors.display,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                if (rows.size == 1) "1 ENTRY" else "${rows.size} ENTRIES",
+                style = PillLabelStyle,
+                color = colors.textTertiary
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+
         if (rows.isEmpty()) {
             Text(
                 "Nothing is scheduled for this month.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = colors.textSecondary
             )
-            return@SectionCard
         }
 
-        rows.forEachIndexed { index, row ->
-            if (index > 0) {
-                HorizontalDivider(
-                    modifier = Modifier.padding(vertical = 2.dp),
-                    color = colors.cardBorder
-                )
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconWash(
-                    icon = row.icon,
-                    tint = if (row.isInflow) colors.positive else colors.negative
-                )
-                Spacer(Modifier.width(14.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(row.label, style = MaterialTheme.typography.bodyLarge)
-                    if (row.supporting != null) {
-                        Text(
-                            row.supporting,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                MoneyText(
-                    money = row.amount,
-                    style = MaterialTheme.typography.titleMedium
+        val visible = if (showAll) rows else rows.take(BREAKDOWN_ROWS)
+        visible.forEachIndexed { index, row ->
+            if (index > 0) HorizontalDivider(color = colors.borderSubtle)
+            BreakdownLineRow(row)
+        }
+        if (rows.size > BREAKDOWN_ROWS) {
+            TextButton(onClick = { showAll = !showAll }) {
+                Text(
+                    if (showAll) "Show fewer" else "Show all ${rows.size}",
+                    style = MaterialTheme.typography.labelLarge
                 )
             }
         }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp), color = colors.cardBorder)
+        Spacer(Modifier.height(4.dp))
+        HorizontalDivider(color = colors.cardBorder)
+        Spacer(Modifier.height(4.dp))
         SummaryRow(
             label = "Expected at month end",
             amount = month.closingBalance,
             emphasise = true,
-            amountColor = if (month.isShortfall) colors.negative else null
+            amountColor = if (month.isShortfall) colors.negative else colors.display
         )
         if (month.plannedSavings.isPositive) {
             SummaryRow(
@@ -643,97 +851,83 @@ private fun BreakdownCard(month: MonthForecast) {
                 "Everyday spending is not projected yet. Once you have recorded a few " +
                     "weeks of expenses, this will include a realistic estimate.",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = colors.textTertiary
             )
         }
     }
 }
 
-private data class BreakdownRow(
-    val label: String,
+private data class BreakdownLine(
+    val title: String,
+    val subtitle: String,
     val amount: Money,
-    val icon: ImageVector,
     val isInflow: Boolean,
-    val supporting: String? = null
+    val icon: ImageVector,
+    val confidence: Confidence,
+    val isEveryday: Boolean = false
 )
 
-/** The dated lines behind the month, collapsed by default to keep the summary clean. */
 @Composable
-private fun DatedItemsCard(month: MonthForecast) {
-    if (month.items.isEmpty()) return
-    var expanded by remember(month.month) { mutableStateOf(false) }
+private fun BreakdownLineRow(row: BreakdownLine) {
     val colors = MoneyTheme.colors
+    val (tint, well) = when {
+        row.isInflow -> colors.positive to colors.positiveContainer
+        row.isEveryday -> colors.warning to colors.accentSoft
+        else -> colors.forecast to colors.forecastContainer
+    }
 
-    SectionCard {
-        Row(
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically
+                .size(40.dp)
+                .background(well, CircleShape),
+            contentAlignment = Alignment.Center
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Dated payments", style = MaterialTheme.typography.titleLarge)
-                Text(
-                    "${month.items.size} scheduled in ${DateUtil.formatMonth(month.month)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Icon(
-                if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = if (expanded) "Hide dated payments" else "Show dated payments"
+            Icon(row.icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                row.title,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                row.subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textSecondary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
         }
-
-        AnimatedVisibility(visible = expanded) {
-            Column {
-                Spacer(Modifier.height(8.dp))
-                month.items.forEach { item ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconWash(
-                            icon = iconFor(item.kind),
-                            tint = if (item.isInflow) colors.positive else colors.negative,
-                            size = 36.dp
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(item.title, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "${DateUtil.formatDayMonth(item.date)} · ${item.subtitle}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            // Late money is said in so many words. A missed repayment is
-                            // carried forward to today so it stays in view, which makes its
-                            // date look like an ordinary due date; the flag is what knows.
-                            if (item.isOverdue) {
-                                Spacer(Modifier.height(4.dp))
-                                ConfidencePill(Confidence.OVERDUE)
-                            }
-                        }
-                        MoneyText(
-                            money = item.signedAmount,
-                            colorBySign = true,
-                            showSign = true,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-                }
-            }
+        Spacer(Modifier.width(8.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            MoneyText(
+                money = if (row.isInflow) row.amount else -row.amount,
+                style = MaterialTheme.typography.titleMedium,
+                showSign = true,
+                color = if (row.isInflow) colors.positive else colors.negative
+            )
+            Spacer(Modifier.height(4.dp))
+            ConfidencePill(row.confidence)
         }
     }
 }
 
 private fun iconFor(kind: ForecastItemKind): ImageVector = when (kind) {
-    ForecastItemKind.INCOME -> Icons.Default.ArrowDownward
+    ForecastItemKind.INCOME -> Icons.Default.Payments
     ForecastItemKind.PERSON_INCOMING, ForecastItemKind.PERSON_OUTGOING -> Icons.Default.Groups
     ForecastItemKind.EMI -> Icons.Default.AccountBalance
-    ForecastItemKind.BILL, ForecastItemKind.ANNUAL -> Icons.Default.CalendarMonth
+    ForecastItemKind.BILL -> Icons.AutoMirrored.Filled.ReceiptLong
+    ForecastItemKind.ANNUAL -> Icons.Default.CalendarMonth
     ForecastItemKind.CREDIT_CARD -> Icons.Default.CreditCard
 }
 

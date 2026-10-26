@@ -1,7 +1,8 @@
 package com.moneyplanner.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,31 +17,38 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Timeline
+import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.moneyplanner.core.money.IndianFormat
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.core.time.DateUtil
 import com.moneyplanner.ui.theme.MoneyTheme
+import com.moneyplanner.ui.theme.PillLabelStyle
 import java.time.YearMonth
 
 /**
@@ -74,8 +82,11 @@ enum class Confidence(val label: String, val meaning: String) {
 /**
  * The confidence marker itself.
  *
- * Uppercase and bordered so it reads as a label rather than as decoration, and small
- * enough to sit inline beside a row title without competing with the amount.
+ * The visual rule is the app's: the past is solid and the future is light. A recorded fact
+ * is a solid ink pill; anything still to come is outlined in lavender; an estimate's outline
+ * is dashed and a projection's dotted, so the line itself says how firm the figure is. Late
+ * money is the one solid warm pill. Every state also has its own icon and word, so none of
+ * this depends on telling colours apart.
  */
 @Composable
 fun ConfidencePill(
@@ -83,61 +94,99 @@ fun ConfidencePill(
     modifier: Modifier = Modifier
 ) {
     val colors = MoneyTheme.colors
-    val scheme = MaterialTheme.colorScheme
 
     val fill: Color
     val ink: Color
-    val edge: Color
+    val edge: Color?
+    val dash: PillEdge
     val icon: ImageVector
 
     when (confidence) {
         Confidence.RECORDED -> {
-            fill = colors.positiveContainer; ink = colors.positive
-            edge = colors.positiveBorder; icon = Icons.Filled.Check
+            fill = colors.textPrimary; ink = colors.card
+            edge = null; dash = PillEdge.SOLID; icon = Icons.Filled.CheckCircle
         }
         Confidence.UPCOMING -> {
-            fill = colors.warningContainer; ink = colors.warning
-            edge = colors.warningBorder; icon = Icons.Filled.Schedule
+            fill = colors.card; ink = colors.forecast
+            edge = colors.forecast; dash = PillEdge.SOLID; icon = Icons.Filled.Schedule
         }
         Confidence.OVERDUE -> {
-            fill = colors.negativeContainer; ink = colors.negative
-            edge = colors.negativeBorder; icon = Icons.Filled.PriorityHigh
+            fill = colors.warning; ink = colors.card
+            edge = null; dash = PillEdge.SOLID; icon = Icons.Filled.PriorityHigh
         }
         Confidence.ESTIMATED -> {
-            fill = colors.neutralContainer; ink = colors.neutral
-            edge = colors.neutralBorder; icon = Icons.Filled.Timeline
+            fill = colors.forecastContainer; ink = colors.forecast
+            edge = colors.forecast; dash = PillEdge.DASHED; icon = Icons.Filled.Waves
         }
         Confidence.FORECAST -> {
-            fill = scheme.primaryContainer; ink = scheme.primary
-            edge = scheme.primary.copy(alpha = 0.35f)
+            fill = colors.forecast.copy(alpha = 0.10f); ink = colors.forecast
+            edge = colors.forecast; dash = PillEdge.DOTTED
             icon = Icons.AutoMirrored.Filled.TrendingUp
         }
         Confidence.ACCOUNT_UNKNOWN -> {
             fill = colors.neutralContainer; ink = colors.neutral
-            edge = colors.neutralBorder; icon = Icons.Filled.HelpOutline
+            edge = colors.neutral; dash = PillEdge.DASHED
+            icon = Icons.AutoMirrored.Filled.HelpOutline
         }
     }
 
-    Surface(
-        modifier = modifier.semantics { contentDescription = confidence.meaning },
-        shape = RoundedCornerShape(6.dp),
-        color = fill,
-        border = BorderStroke(1.dp, edge)
+    Row(
+        modifier = modifier
+            .semantics { contentDescription = confidence.meaning }
+            .background(fill, PillShape)
+            .then(if (edge != null) Modifier.pillEdge(edge, dash) else Modifier)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(12.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(
-                confidence.label,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Medium,
-                color = ink
-            )
-        }
+        Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(12.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(confidence.label, style = PillLabelStyle, color = ink, maxLines = 1)
     }
+}
+
+private val PillShape = RoundedCornerShape(50)
+
+/** How firm a pill's outline is: solid for fact, dashed for an estimate, dotted for a projection. */
+enum class PillEdge { SOLID, DASHED, DOTTED }
+
+/**
+ * A rounded outline that can be dashed or dotted, which a plain border cannot. Drawn inside
+ * the bounds so the pill's size does not change with its edge.
+ */
+fun Modifier.pillEdge(color: Color, edge: PillEdge, width: Dp = 1.dp): Modifier = drawBehind {
+    val stroke = width.toPx()
+    val effect = when (edge) {
+        PillEdge.SOLID -> null
+        PillEdge.DASHED -> PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 3.dp.toPx()))
+        PillEdge.DOTTED -> PathEffect.dashPathEffect(floatArrayOf(1.5.dp.toPx(), 2.5.dp.toPx()))
+    }
+    val inset = stroke / 2
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(inset, inset),
+        size = Size(size.width - stroke, size.height - stroke),
+        cornerRadius = CornerRadius((size.height - stroke) / 2),
+        style = Stroke(width = stroke, pathEffect = effect)
+    )
+}
+
+/**
+ * A dashed rounded outline for whole containers: a projected day on the calendar, an
+ * estimated bill card. The same visual vocabulary as the pills, at container scale.
+ */
+fun Modifier.dashedOutline(color: Color, radius: Dp, width: Dp = 1.dp): Modifier = drawBehind {
+    val stroke = width.toPx()
+    val inset = stroke / 2
+    drawRoundRect(
+        color = color,
+        topLeft = Offset(inset, inset),
+        size = Size(size.width - stroke, size.height - stroke),
+        cornerRadius = CornerRadius(radius.toPx()),
+        style = Stroke(
+            width = stroke,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))
+        )
+    )
 }
 
 /**
@@ -282,10 +331,11 @@ private fun ComparisonTrack(
 /**
  * Moving between months.
  *
- * The arrows are full 48dp targets, and the current month is named rather than implied, so
- * somebody three months back knows where they are without counting taps. When the month on
- * screen is the one being lived through, it says so: a partial month's totals mean
- * something different from a finished one's.
+ * A pill holding "‹ October 2026 ›", with a marker on the right for the month being lived
+ * through: a partial month's totals mean something different from a finished one's, and
+ * somebody three months back should know where they are without counting taps. Given
+ * [onJumpToCurrent], the marker becomes a "This month" button whenever another month is on
+ * screen. The arrows stay full 48dp targets.
  */
 @Composable
 fun MonthSelector(
@@ -294,15 +344,21 @@ fun MonthSelector(
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
     currentMonth: YearMonth? = null,
-    nextEnabled: Boolean = true
+    nextEnabled: Boolean = true,
+    onJumpToCurrent: (() -> Unit)? = null
 ) {
     val colors = MoneyTheme.colors
     val isCurrent = currentMonth != null && month == currentMonth
     val title = DateUtil.formatMonth(month)
+    val shape = RoundedCornerShape(50)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .softShadow(shape, elevation = 2.dp)
+            .background(colors.card, shape)
+            .border(1.dp, colors.cardBorder, shape)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
             .semantics {
                 contentDescription = if (isCurrent) {
                     "Showing $title, the month currently in progress"
@@ -315,30 +371,16 @@ fun MonthSelector(
         IconButton(onClick = onPrevious, modifier = Modifier.size(48.dp)) {
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                contentDescription = "Previous month"
+                contentDescription = "Previous month",
+                tint = colors.textPrimary
             )
         }
-
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .clearAndSetSemantics { },
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineMedium,
-                color = colors.textPrimary
-            )
-            if (isCurrent) {
-                Text(
-                    "This month",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.textTertiary
-                )
-            }
-        }
-
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            color = colors.textPrimary,
+            modifier = Modifier.clearAndSetSemantics { }
+        )
         IconButton(
             onClick = onNext,
             enabled = nextEnabled,
@@ -346,8 +388,44 @@ fun MonthSelector(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "Next month"
+                contentDescription = "Next month",
+                tint = colors.textPrimary
             )
+        }
+        Spacer(Modifier.weight(1f))
+
+        val canJump = !isCurrent && currentMonth != null && onJumpToCurrent != null
+        if (isCurrent || canJump) {
+            Row(
+                modifier = Modifier
+                    .padding(end = 6.dp)
+                    .background(colors.accentSoft, shape)
+                    .border(1.dp, colors.accent.copy(alpha = 0.6f), shape)
+                    .then(
+                        if (canJump) {
+                            Modifier.clickable(onClickLabel = "Go to this month") {
+                                onJumpToCurrent?.invoke()
+                            }
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.CalendarToday,
+                    contentDescription = null,
+                    tint = colors.warning,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "This month",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.onWarningContainer
+                )
+            }
         }
     }
 }
