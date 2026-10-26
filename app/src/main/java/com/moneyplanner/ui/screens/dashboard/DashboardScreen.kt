@@ -1012,7 +1012,13 @@ private fun ForecastCard(state: DashboardState.Ready, onOpenForecast: () -> Unit
                 withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = colors.display)) {
                     append(IndianFormat.format(month.safeToSpend))
                 }
-                append(" after every commitment you have recorded.")
+                append(" after every commitment you have recorded")
+                // Named, so the figure reconciles with the money shown going out and
+                // expected just below, which still includes the goal money.
+                if (month.setAsideForGoals.isPositive) {
+                    append(", with ${IndianFormat.format(month.setAsideForGoals)} kept aside for your goals")
+                }
+                append(".")
             },
             style = MaterialTheme.typography.bodyMedium,
             color = colors.textSecondary

@@ -148,9 +148,15 @@ object MoneyAssistant {
         val month = ForecastCalculator.forecast(snapshot, 1).first()
         return AssistantAnswer(
             headline = IndianFormat.format(month.safeToSpend),
-            detail = "That is what is left for the rest of ${DateUtil.formatMonth(month.month)} " +
-                "once every commitment you have recorded is met, including " +
-                "${IndianFormat.format(month.committedOutflow)} of payments still to come.",
+            detail = buildString {
+                append("That is what is left for the rest of ${DateUtil.formatMonth(month.month)} ")
+                append("once every commitment you have recorded is met, including ")
+                append("${IndianFormat.format(month.committedOutflow)} of payments still to come.")
+                if (month.setAsideForGoals.isPositive) {
+                    append(" The ${IndianFormat.format(month.setAsideForGoals)} you have set ")
+                    append("aside for goals is not counted as money to spend.")
+                }
+            },
             action = AssistantAction.OPEN_FORECAST
         )
     }

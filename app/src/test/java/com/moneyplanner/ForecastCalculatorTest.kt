@@ -277,6 +277,66 @@ class ForecastCalculatorTest {
         )
     }
 
+    /**
+     * Money put into a goal never leaves the account, so the projected balance keeps it,
+     * but the home screen already treats it as promised. Safe to spend used to count it
+     * anyway, and could read far higher than the money actually free to spend.
+     */
+    @Test
+    fun `money set aside for a goal stays in the balance but is not safe to spend`() {
+        val snap = base(opening = 100_000).copy(
+            goals = listOf(goal(id = 1, name = "Goa trip", target = 80_000)),
+            contributions = listOf(contribution(goalId = 1, amount = 60_000, date = "2026-08-02"))
+        )
+        val august = monthOf(snap, 0)
+
+        assertEquals(rupees(60_000), august.setAsideForGoals)
+        assertEquals("the real balance still holds the savings", rupees(100_000), august.closingBalance)
+        assertEquals(rupees(40_000), august.safeToSpend)
+    }
+
+    @Test
+    fun `commitments that reach into savings leave nothing safe to spend but are not a shortfall`() {
+        val snap = base(opening = 50_000).copy(
+            bills = listOf(bill(amount = 13_000, dueDay = 25)),
+            goals = listOf(goal(id = 1, target = 100_000)),
+            contributions = listOf(contribution(goalId = 1, amount = 45_000))
+        )
+        val august = monthOf(snap, 0)
+
+        assertEquals(rupees(37_000), august.closingBalance)
+        assertFalse("the account itself does not run dry", august.isShortfall)
+        assertEquals(rupees(0), august.safeToSpend)
+    }
+
+    @Test
+    fun `money set aside on a later date is held back from its own month onwards`() {
+        val snap = base(opening = 100_000).copy(
+            goals = listOf(goal(id = 1, target = 100_000)),
+            contributions = listOf(
+                contribution(id = 1, goalId = 1, amount = 20_000, date = "2026-08-01"),
+                contribution(id = 2, goalId = 1, amount = 30_000, date = "2026-09-10")
+            )
+        )
+
+        assertEquals(rupees(20_000), monthOf(snap, 0).setAsideForGoals)
+        assertEquals(rupees(50_000), monthOf(snap, 1).setAsideForGoals)
+    }
+
+    @Test
+    fun `what is left after this month's saving leaves the money already set aside alone too`() {
+        val snap = base(opening = 100_000).copy(
+            goals = listOf(goal(id = 1, target = 80_000, targetDate = "2027-02-28")),
+            contributions = listOf(contribution(goalId = 1, amount = 20_000))
+        )
+        val august = monthOf(snap, 0)
+
+        // 60,000 still to save, over the six months to February.
+        assertEquals(rupees(10_000), august.plannedSavings)
+        assertEquals(rupees(80_000), august.safeToSpend)
+        assertEquals(rupees(70_000), august.leftAfterPlannedSavings)
+    }
+
     @Test
     fun `an expense linked to a bill does not also inflate everyday spending`() {
         val withLink = base().copy(

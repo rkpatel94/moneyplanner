@@ -137,6 +137,20 @@ class MoneyAssistantTest {
     }
 
     @Test
+    fun `safe to spend leaves out money set aside for goals, and says so`() {
+        val snap = FinancialSnapshot(
+            today = date("2026-08-18"),
+            accounts = listOf(account(opening = 100_000)),
+            goals = listOf(goal(id = 1, name = "Goa trip", target = 80_000)),
+            contributions = listOf(contribution(goalId = 1, amount = 60_000))
+        )
+        val answer = MoneyAssistant.answer("how much can I safely spend", snap)
+
+        assertEquals("₹40,000", answer.headline)
+        assertTrue(answer.detail.contains("₹60,000 you have set aside for goals"))
+    }
+
+    @Test
     fun `every offered suggestion is actually understood`() {
         val snap = snapshot()
         MoneyAssistant.SUGGESTIONS.forEach { suggestion ->

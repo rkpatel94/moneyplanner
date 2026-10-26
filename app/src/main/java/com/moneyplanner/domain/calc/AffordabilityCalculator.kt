@@ -1,5 +1,6 @@
 package com.moneyplanner.domain.calc
 
+import com.moneyplanner.core.money.IndianFormat
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.core.money.sumOfMoney
 import com.moneyplanner.domain.model.AffordabilityVerdict
@@ -13,6 +14,10 @@ import com.moneyplanner.domain.model.FinancialSnapshot
  * markets, or promise anything: it reports the arithmetic and leaves the decision with
  * the person. Every figure shown in the explanation is one the user can go and verify on
  * another screen of the app.
+ *
+ * Money set aside for goals counts as available, because it really is in the account, so
+ * it can keep a purchase from breaking a commitment. A purchase that would need it is
+ * never called safe, though, just as the home screen never offers it as money to spend.
  */
 object AffordabilityCalculator {
 
@@ -33,9 +38,15 @@ object AffordabilityCalculator {
 
         val emergency = EmergencyFundCalculator.calculate(snapshot)
         val monthlyEssential = emergency.monthlyEssentialExpenses
+        val setAside = BalanceCalculator.earmarkedForGoalsAsOf(snapshot, snapshot.today)
 
         val remainingAfterPurchase = available - purchaseAmount
         val projectedClose = available + incoming - committed - everyday - purchaseAmount
+
+        // The emergency fund gets a warning of its own. Money for any other goal is still
+        // flagged, in general terms, so a holiday fund is not quietly spent either.
+        val dipsIntoEmergencyFund = emergency.hasGoal && remainingAfterPurchase < emergency.currentAmount
+        val dipsIntoGoals = remainingAfterPurchase < setAside
 
         // The lowest point the balance is expected to reach at any month end, which is
         // what actually determines whether a purchase causes trouble. A comfortable
@@ -59,8 +70,7 @@ object AffordabilityCalculator {
             purchaseAmount > available -> AffordabilityVerdict.NOT_RECOMMENDED
             lowestPoint.isNegative -> AffordabilityVerdict.NOT_RECOMMENDED
             lowestPoint < comfortCushion -> AffordabilityVerdict.BE_CAREFUL
-            emergency.hasGoal && remainingAfterPurchase < emergency.currentAmount ->
-                AffordabilityVerdict.BE_CAREFUL
+            dipsIntoEmergencyFund || dipsIntoGoals -> AffordabilityVerdict.BE_CAREFUL
             else -> AffordabilityVerdict.SAFE
         }
 
@@ -68,7 +78,12 @@ object AffordabilityCalculator {
             AffordabilityVerdict.SAFE ->
                 "This fits comfortably alongside your upcoming payments."
             AffordabilityVerdict.BE_CAREFUL ->
-                "You can do this, but it leaves little room for anything unexpected."
+                if (lowestPoint < comfortCushion) {
+                    "You can do this, but it leaves little room for anything unexpected."
+                } else {
+                    // Room to spare at every month end, so the only trouble is the savings.
+                    "You can do this, but only by using money you have set aside."
+                }
             AffordabilityVerdict.NOT_RECOMMENDED ->
                 "This purchase would put your upcoming payments under pressure."
         }
@@ -83,8 +98,14 @@ object AffordabilityCalculator {
             } else if (lowestPoint < comfortCushion && monthlyEssential.isPositive) {
                 add("At its lowest point you would be left with less than half a month of essential expenses.")
             }
-            if (emergency.hasGoal && remainingAfterPurchase < emergency.currentAmount) {
+            if (dipsIntoEmergencyFund) {
                 add("Covering this would mean dipping into money you have set aside as your emergency fund.")
+            } else if (dipsIntoGoals) {
+                add(
+                    "Covering this would mean using money you have set aside for your goals: " +
+                        "${IndianFormat.format(setAside)} of your balance is set aside, and " +
+                        "you would have ${IndianFormat.format(remainingAfterPurchase.coerceAtLeastZero())} left."
+                )
             }
             if (isEmpty()) {
                 add("Your projected balance stays above your commitments for the whole period.")

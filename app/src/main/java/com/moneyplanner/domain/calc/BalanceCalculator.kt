@@ -41,6 +41,17 @@ object BalanceCalculator {
     fun breakdown(snapshot: FinancialSnapshot): BalanceBreakdown =
         breakdownAsOf(snapshot, snapshot.today)
 
+    /**
+     * Money promised to savings goals as of [asOf]: every contribution so far, less any
+     * withdrawals, and never below zero. It is part of the balance, because it never left
+     * the account, but it is not free to spend.
+     */
+    fun earmarkedForGoalsAsOf(snapshot: FinancialSnapshot, asOf: LocalDate): Money =
+        snapshot.contributions
+            .filter { !it.date.isAfter(asOf) }
+            .sumOfMoney { it.amount }
+            .coerceAtLeastZero()
+
     fun breakdownAsOf(snapshot: FinancialSnapshot, asOf: LocalDate): BalanceBreakdown {
         fun onOrBefore(date: LocalDate) = !date.isAfter(asOf)
 
@@ -72,10 +83,7 @@ object BalanceCalculator {
             .filter { onOrBefore(it.date) && it.direction == SettlementDirection.PAID_TO_THEM }
             .sumOfMoney { it.amount }
 
-        val earmarked = snapshot.contributions
-            .filter { onOrBefore(it.date) }
-            .sumOfMoney { it.amount }
-            .coerceAtLeastZero()
+        val earmarked = earmarkedForGoalsAsOf(snapshot, asOf)
 
         val available = opening + adjustments + incomeReceived + settlementsIn -
             cashSpent - cardBillsPaid - settlementsOut

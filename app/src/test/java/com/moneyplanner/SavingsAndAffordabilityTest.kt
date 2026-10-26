@@ -241,6 +241,27 @@ class AffordabilityCalculatorTest {
     }
 
     @Test
+    fun `spending money set aside for any goal is flagged rather than called safe`() {
+        val snap = snapshot(100_000).copy(
+            goals = listOf(goal(id = 1, name = "Goa trip", target = 80_000)),
+            contributions = listOf(contribution(goalId = 1, amount = 70_000)),
+            incomeSources = listOf(incomeSource(amount = 55_000, dayOfMonth = 1))
+        )
+
+        val intoTheGoal = AffordabilityCalculator.check(snap, rupees(40_000))
+        assertEquals(AffordabilityVerdict.BE_CAREFUL, intoTheGoal.verdict)
+        assertTrue(intoTheGoal.headline.contains("money you have set aside"))
+        assertTrue(intoTheGoal.reasons.any { it.contains("set aside for your goals") })
+
+        val besideTheGoal = AffordabilityCalculator.check(snap, rupees(25_000))
+        assertEquals(
+            "75,000 left still covers the 70,000 set aside",
+            AffordabilityVerdict.SAFE,
+            besideTheGoal.verdict
+        )
+    }
+
+    @Test
     fun `the explanation only uses figures the user can verify elsewhere`() {
         val snap = snapshot(100_000).copy(
             incomeSources = listOf(incomeSource(amount = 55_000, dayOfMonth = 1)),

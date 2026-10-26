@@ -832,17 +832,31 @@ private fun BreakdownCard(month: MonthForecast) {
         Spacer(Modifier.height(4.dp))
         HorizontalDivider(color = colors.cardBorder)
         Spacer(Modifier.height(4.dp))
+        // From the real month-end balance down to what is free, one deduction per row: the
+        // money already set aside for goals, then what the goals need this month.
+        val setAside = month.setAsideForGoals
         SummaryRow(
             label = "Expected at month end",
             amount = month.closingBalance,
+            supporting = setAside.takeIf { it.isPositive }
+                ?.let { "Includes ${IndianFormat.format(it)} set aside for goals" },
             emphasise = true,
             amountColor = if (month.isShortfall) colors.negative else colors.display
         )
+        if (setAside.isPositive) {
+            SummaryRow(
+                label = "Safe to spend",
+                amount = month.safeToSpend,
+                supporting = "Leaving the money set aside for goals alone"
+            )
+        }
         if (month.plannedSavings.isPositive) {
             SummaryRow(
                 label = "After setting savings aside",
-                amount = month.closingAfterPlannedSavings,
-                supporting = "Your goals need ${IndianFormat.format(month.plannedSavings)} this month"
+                amount = month.leftAfterPlannedSavings,
+                supporting = "Your goals need ${IndianFormat.format(month.plannedSavings)}" +
+                    (if (setAside.isPositive) " more" else "") + " this month",
+                amountColor = if (month.leftAfterPlannedSavings.isNegative) colors.negative else null
             )
         }
         if (!month.isProjectionBasedOnHistory && month.estimatedEverydaySpend.isZero) {
