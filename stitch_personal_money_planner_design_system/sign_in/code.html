@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Login - Personal Money Planner</title>
+<!-- Inter Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS with Forms and Container Queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-surface": "#111c2d",
+            "tertiary-fixed": "#ffdbca",
+            "on-tertiary-fixed-variant": "#763300",
+            "on-secondary-container": "#57657a",
+            "outline": "#767683",
+            "tertiary-container": "#331200",
+            "on-primary-fixed-variant": "#353e91",
+            "background": "#f9f9ff",
+            "secondary-fixed": "#d5e3fc",
+            "surface-variant": "#d8e3fb",
+            "on-error-container": "#93000a",
+            "surface-tint": "#4e56ab",
+            "surface-container-lowest": "#ffffff",
+            "secondary": "#515f74",
+            "on-primary": "#ffffff",
+            "on-primary-container": "#747cd3",
+            "on-error": "#ffffff",
+            "surface-dim": "#cfdaf2",
+            "on-tertiary-container": "#cf6721",
+            "surface-container": "#e7eeff",
+            "primary": "#000000",
+            "surface-container-high": "#dee8ff",
+            "inverse-primary": "#bdc2ff",
+            "primary-fixed-dim": "#bdc2ff",
+            "on-background": "#111c2d",
+            "on-tertiary-fixed": "#331200",
+            "on-secondary-fixed": "#0d1c2e",
+            "on-surface-variant": "#464651",
+            "surface-container-low": "#f0f3ff",
+            "on-secondary-fixed-variant": "#3a485b",
+            "inverse-surface": "#263143",
+            "on-tertiary": "#ffffff",
+            "surface-bright": "#f9f9ff",
+            "surface-container-highest": "#d8e3fb",
+            "inverse-on-surface": "#ecf1ff",
+            "tertiary-fixed-dim": "#ffb68e",
+            "secondary-container": "#d5e3fc",
+            "error-container": "#ffdad6",
+            "error": "#ba1a1a",
+            "secondary-fixed-dim": "#b9c7df",
+            "outline-variant": "#c6c5d3",
+            "tertiary": "#000000",
+            "surface": "#f9f9ff",
+            "primary-fixed": "#e0e0ff",
+            "on-secondary": "#ffffff",
+            "on-primary-fixed": "#010766",
+            "primary-container": "#010766"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "none": "0rem",
+            "gutter-tablet": "1rem",
+            "lg": "1.25rem",
+            "md": "0.75rem",
+            "xs": "0.25rem",
+            "gutter-mobile": "0.75rem",
+            "margin-mobile": "1rem",
+            "sm": "0.5rem",
+            "xl": "1.5rem",
+            "base": "1rem",
+            "margin-tablet": "1.5rem",
+            "2xl": "2rem",
+            "2xs": "0.125rem",
+            "3xl": "3rem"
+          },
+          "fontFamily": {
+            "body-lg": ["Inter"],
+            "label-lg": ["Inter"],
+            "title-sm": ["Inter"],
+            "body-sm": ["Inter"],
+            "headline-sm": ["Inter"],
+            "body-md": ["Inter"],
+            "headline-md": ["Inter"],
+            "title-md": ["Inter"],
+            "headline-lg": ["Inter"],
+            "display-lg": ["Inter"],
+            "display-lg-mobile": ["Inter"],
+            "label-md": ["Inter"],
+            "label-sm": ["Inter"]
+          },
+          "fontSize": {
+            "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "label-lg": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+            "title-sm": ["14px", { "lineHeight": "20px", "fontWeight": "600" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+            "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "title-md": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "display-lg": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "display-lg-mobile": ["28px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface antialiased min-h-screen flex flex-col justify-between selection:bg-secondary-container">
+<!-- Top Area / Minimal App Bar -->
+<header class="w-full bg-surface-container-lowest border-b border-outline-variant/30 px-base sm:px-xl h-14 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-xl bg-primary-container flex items-center justify-center text-on-primary">
+<span class="material-symbols-outlined text-[20px]" data-icon="account_balance_wallet">account_balance_wallet</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-sm text-headline-sm text-on-surface leading-tight tracking-tight">Personal Money Planner</span>
+<span class="font-label-sm text-label-sm text-secondary -mt-0.5">Truthful Household Cash Flow</span>
+</div>
+</div>
+<div class="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-surface-container-low border border-outline-variant/40">
+<span class="material-symbols-outlined text-secondary text-[16px]" data-icon="lock">lock</span>
+<span class="font-label-sm text-label-sm text-secondary">Local-first</span>
+</div>
+</header>
+<!-- Main Content Container -->
+<main class="w-full max-w-md mx-auto px-base py-lg flex-1 flex flex-col justify-center gap-xl">
+<!-- Hero Section -->
+<section class="flex flex-col gap-xs text-left">
+<div class="inline-flex items-center gap-1 text-secondary">
+<span class="material-symbols-outlined text-[16px]" data-icon="verified_user">verified_user</span>
+<span class="font-label-md text-label-md tracking-normal text-secondary">Zero-compromise accounting</span>
+</div>
+<h1 class="font-headline-lg-mobile sm:font-headline-lg text-headline-lg-mobile sm:text-headline-lg text-on-surface font-semibold tracking-tight">
+        Truthful household cash flow.
+      </h1>
+<p class="font-body-md text-body-md text-on-surface-variant">
+        Know exactly what remains across the next 12 months, without guessing.
+      </p>
+</section>
+<!-- Core Value & Privacy Architecture Card -->
+<section class="bg-surface-container-lowest rounded-xl border border-outline-variant/40 p-base flex flex-col gap-base shadow-none">
+<div class="flex items-center justify-between border-b border-outline-variant/20 pb-2">
+<span class="font-title-sm text-title-sm text-secondary uppercase tracking-wider text-[11px]">System Guarantees</span>
+<span class="font-label-sm text-label-sm px-1.5 py-0.5 rounded bg-surface-container text-on-secondary-container">REC</span>
+</div>
+<div class="flex flex-col gap-md">
+<!-- Badge item 1 -->
+<div class="flex items-start gap-md">
+<div class="w-7 h-7 rounded-lg bg-surface-container-low border border-outline-variant/30 flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[18px] text-primary-container" data-icon="lock">lock</span>
+</div>
+<div class="flex flex-col">
+<span class="font-title-sm text-title-sm text-on-surface">100% On-Device Financial Processing</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Your transactions never leave this physical hardware.</span>
+</div>
+</div>
+<!-- Badge item 2 -->
+<div class="flex items-start gap-md">
+<div class="w-7 h-7 rounded-lg bg-surface-container-low border border-outline-variant/30 flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[18px] text-primary-container" data-icon="shield">shield</span>
+</div>
+<div class="flex flex-col">
+<span class="font-title-sm text-title-sm text-on-surface">No SMS selling, no third-party ad tracking</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Complete zero-telemetry architecture with neutral math.</span>
+</div>
+</div>
+<!-- Badge item 3 -->
+<div class="flex items-start gap-md">
+<div class="w-7 h-7 rounded-lg bg-surface-container-low border border-outline-variant/30 flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-[18px] text-primary-container" data-icon="offline_bolt">offline_bolt</span>
+</div>
+<div class="flex flex-col">
+<span class="font-title-sm text-title-sm text-on-surface">Works offline · Bank-grade AES-256 local encryption</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Keys stored strictly in hardware Android Keystore / Secure Enclave.</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Authentication Area (Bottom Half / Thumb Reach) -->
+<section class="flex flex-col gap-md">
+<!-- Google Sign In Button -->
+<button class="w-full h-12 px-base rounded-xl bg-surface-container-lowest border border-outline-variant hover:bg-surface-container-low transition-colors duration-150 flex items-center justify-center gap-base focus:outline-none focus:ring-2 focus:ring-primary-container" type="button">
+<!-- Official Google 'G' standard SVG -->
+<svg class="w-5 h-5 shrink-0" viewbox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"></path>
+<path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"></path>
+<path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"></path>
+<path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"></path>
+</svg>
+<span class="font-label-lg text-label-lg text-on-surface font-semibold">Continue with Google</span>
+</button>
+<!-- Secondary Email / Phone Button -->
+<button class="w-full h-12 px-base rounded-xl bg-transparent border border-outline hover:bg-surface-container-low transition-colors duration-150 flex items-center justify-center gap-2 focus:outline-none focus:ring-2 focus:ring-primary-container" type="button">
+<span class="material-symbols-outlined text-[20px] text-on-surface" data-icon="mail">mail</span>
+<span class="font-label-lg text-label-lg text-on-surface font-medium">Or continue with Email / Phone</span>
+</button>
+<!-- Guest / Offline Mode Skip Button -->
+<div class="pt-xs flex flex-col items-center">
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low transition-colors duration-150 focus:outline-none" type="button">
+<span class="material-symbols-outlined text-[18px]" data-icon="signal_wifi_off">signal_wifi_off</span>
+<span class="font-label-lg text-label-lg font-medium">Use locally without account (Skip for now)</span>
+</button>
+<span class="font-label-sm text-label-sm text-secondary text-center mt-1">Zero cloud sync · Pure offline encrypted ledger</span>
+</div>
+</section>
+</main>
+<!-- Legal & Privacy Microcopy Footer -->
+<footer class="w-full max-w-md mx-auto px-base pb-base pt-xs text-center">
+<p class="font-body-sm text-body-sm text-on-surface-variant leading-relaxed">
+      By continuing, you acknowledge that your financial data stays securely under your household control. 
+      <a class="text-on-surface font-medium underline underline-offset-2 hover:text-primary-container transition-colors" href="#">View Privacy Architecture &amp; Terms</a>.
+    </p>
+<div class="mt-2 text-center">
+<span class="font-label-sm text-label-sm text-secondary">Personal Money Planner · v2.4.0 · Local-First Edition</span>
+</div>
+</footer>
+</body></html>

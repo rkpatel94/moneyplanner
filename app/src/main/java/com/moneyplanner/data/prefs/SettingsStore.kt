@@ -205,19 +205,19 @@ class SettingsStore @Inject constructor(
     }
 
     /**
-     * Forgets every setting, returning the app to how it behaves on a fresh install.
-     *
-     * Clearing the whole store rather than removing known keys one at a time, so a setting
-     * added later cannot be left behind by an update to this method that nobody remembers
-     * to make.
-     */
-    /**
      * Records that the one-time cash account top-up has run, so it never runs again.
      */
     suspend fun markCashAccountAdded() = context.dataStore.edit {
         it[Keys.CASH_ACCOUNT_ADDED] = true
     }
 
+    /**
+     * Forgets every setting, returning the app to how it behaves on a fresh install.
+     *
+     * Clearing the whole store rather than removing known keys one at a time, so a setting
+     * added later cannot be left behind by an update to this method that nobody remembers
+     * to make.
+     */
     suspend fun clearAll() = context.dataStore.edit { it.clear() }
 }
 

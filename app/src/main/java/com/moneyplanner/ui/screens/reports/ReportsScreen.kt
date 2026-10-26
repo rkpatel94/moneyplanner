@@ -39,6 +39,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.moneyplanner.core.money.IndianFormat
 import com.moneyplanner.core.time.DateUtil
+import com.moneyplanner.domain.calc.ElapsedComparison
+import com.moneyplanner.ui.components.ComparisonBars
+import com.moneyplanner.ui.components.MonthSelector
 import com.moneyplanner.ui.components.EmptyState
 import com.moneyplanner.ui.components.GoalProgressBar
 import com.moneyplanner.ui.components.LoadingState
@@ -48,9 +51,9 @@ import com.moneyplanner.ui.components.SectionCard
 import com.moneyplanner.ui.components.StatusPill
 import com.moneyplanner.ui.components.SummaryRow
 import com.moneyplanner.ui.components.parseColorOrDefault
-import com.moneyplanner.ui.screens.expenses.MonthSelector
 import com.moneyplanner.ui.theme.MoneyTheme
 import androidx.compose.material.icons.filled.Assessment
+import java.time.YearMonth
 
 /**
  * Plain reports rather than a wall of charts.
@@ -62,7 +65,7 @@ import androidx.compose.material.icons.filled.Assessment
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportsScreen(
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     viewModel: ReportsViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -73,8 +76,15 @@ fun ReportsScreen(
             TopAppBar(
                 title = { Text("Reports") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    // Null when this is a bottom-bar destination. A tab with a back arrow
+                    // invites a tap that goes somewhere the user did not come from.
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
                     }
                 }
             )
@@ -105,10 +115,15 @@ fun ReportsScreen(
         ) {
             item {
                 MonthSelector(
-                    label = DateUtil.formatMonth(state.month),
+                    month = state.month,
+                    currentMonth = YearMonth.from(state.today),
                     onPrevious = viewModel::previousMonth,
                     onNext = viewModel::nextMonth
                 )
+            }
+
+            state.elapsed?.takeIf { it.daysElapsed > 0 }?.let { elapsed ->
+                item { ElapsedCard(elapsed) }
             }
 
             item {
@@ -478,6 +493,132 @@ fun ReportsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * How far through the month, and how that compares with the same stretch of the last one.
+ *
+ * A partial month's total is not comparable with a finished month's, so this says how much
+ * of the month has gone before it says anything about the money. The comparison then runs
+ * to the same day of the previous month rather than to its total, because "you have spent
+ * less than last month" on the 9th is true of almost every 9th and tells nobody anything.
+ *
+ * When the previous month was shorter, the month to date and the figure being compared are
+ * different numbers, so both are shown: the total as it stands, then this month and the
+ * last one each up to the last day they share. Putting the total beside a clipped figure
+ * would set two unequal windows side by side under a sentence calling them the same.
+ */
+@Composable
+private fun ElapsedCard(elapsed: ElapsedComparison) {
+    val colors = MoneyTheme.colors
+    val change = elapsed.changePercent
+    val shortened = elapsed.windowShortened
+    val previousName = DateUtil.formatMonthShort(elapsed.previousMonth)
+
+    SectionCard {
+        Text(
+            DateUtil.formatMonth(elapsed.month) + " · " +
+                elapsed.daysElapsed + " of " + elapsed.daysInMonth + " days elapsed" +
+                if (elapsed.isPartial) " (" + elapsed.elapsedPercent + "% of the month)" else "",
+            style = MaterialTheme.typography.labelMedium,
+            color = colors.textSecondary
+        )
+
+        Spacer(Modifier.height(14.dp))
+
+        if (elapsed.hasPrevious) {
+            if (shortened) {
+                // The month to date stays on the card because it is what has really gone,
+                // but it sits outside the bars: they hold only the days both months have.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Spent so far",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.textSecondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    MoneyText(
+                        money = elapsed.spentSoFar,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = colors.textPrimary
+                    )
+                }
+                Spacer(Modifier.height(12.dp))
+            }
+
+            ComparisonBars(
+                topLabel = if (shortened) {
+                    "By day " + elapsed.comparableDay + " of " +
+                        DateUtil.formatMonthShort(elapsed.month)
+                } else {
+                    "Spent so far"
+                },
+                // The same as the month to date unless the window shrank, and always the
+                // figure the percentage below is measured from.
+                topValue = elapsed.spentToComparableDay,
+                bottomLabel = "By day " + elapsed.comparableDay + " of " + previousName,
+                bottomValue = elapsed.spentBySamePoint
+            )
+
+            if (change != null) {
+                // "That" points at the top bar, so with a shrunk window the sentence names the
+                // day it stops at rather than leaving it to be read against the total above.
+                val lead = if (shortened) {
+                    "Up to day " + elapsed.comparableDay + ", that is "
+                } else {
+                    "That is "
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    when {
+                        change > 0 -> lead + change + "% more than by the same day last month."
+                        change < 0 -> lead + (-change) + "% less than by the same day last month."
+                        shortened -> "Up to day " + elapsed.comparableDay +
+                            ", almost exactly the same as by the same day last month."
+                        else -> "Almost exactly the same as by this day last month."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (change > 0) colors.warning else colors.textSecondary
+                )
+            }
+
+            if (shortened) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    previousName + " was shorter, so the comparison stops at day " +
+                        elapsed.comparableDay + ". Spending after that is in the total " +
+                        "above but not in the comparison.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textTertiary
+                )
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Spent so far",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.textSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+                MoneyText(
+                    money = elapsed.spentSoFar,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = colors.textPrimary
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                // "Spending", not "nothing": hasPrevious looks only at expenses, and the same
+                // screen lists that month's income further down, so a blanket "nothing was
+                // recorded" would contradict it.
+                "No spending was recorded in " +
+                    DateUtil.formatMonthShort(elapsed.previousMonth) +
+                    ", so there is nothing yet to compare this against.",
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textTertiary
+            )
         }
     }
 }

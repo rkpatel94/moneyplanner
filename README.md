@@ -4,37 +4,23 @@ An offline-first Android app for Indian household finances. It does not only rec
 was spent — it projects what the user will actually have left in each of the coming months,
 built entirely from figures they have entered themselves.
 
-## Two builds of the same app
-
-The app ships as two product flavours on a `connectivity` dimension. They share every line
-of feature code and differ only in whether they can reach a network at all.
-
-| Flavour | Application id | Network | Cloud backup |
-| --- | --- | --- | --- |
-| `offline` (default) | `com.moneyplanner` | No `INTERNET` permission in the merged manifest | Not present |
-| `cloud` | `com.moneyplanner.cloud` | Holds `INTERNET` | Firebase Auth + Storage |
-
-The offline flavour is the original app and keeps its guarantee intact: the promise is
-checkable in the merged manifest rather than taken on trust. Its source set has no Firebase
-dependency, so nothing can reintroduce one through a transitive.
-
-Both can sit on one device at once, which is what the id suffix is for.
-
 ## Building
 
 ```bash
-./gradlew assembleOfflineDebug
+./gradlew assembleDebug
 ```
 
 ```bash
-./gradlew assembleCloudDebug
-```
-
-```bash
-./gradlew testOfflineDebugUnitTest
+./gradlew testDebugUnitTest
 ```
 
 Requires JDK 17+ and Android SDK platform 35. `local.properties` must point at your SDK.
+
+There is one build, with the application id `com.moneyplanner`. Debug builds add a `.debug`
+suffix so they install beside a release build rather than over it. A release build is signed
+with the key named in `keystore.properties` when that git-ignored file exists, and with the
+local Android debug key otherwise, which is enough to install and test a minified APK and not
+enough for Play.
 
 The Android Studio bundled JBR is fine in the IDE, but some installations ship an
 incomplete `lib/` that aborts a command-line Gradle run before it starts. If
@@ -56,22 +42,22 @@ export JAVA_HOME="/c/Program Files/Java/jdk-20"
 
 ## Privacy posture
 
-**The `offline` flavour** declares **no `INTERNET` permission**, so it cannot phone home
-even by accident. There is no account, no sync, no analytics. `allowBackup` is off and
-cloud/device-transfer backup rules exclude every domain, so financial records are not swept
-into a Google backup. The only way data leaves the device is the user explicitly exporting
-it through the system share sheet.
+The app declares **no `INTERNET` permission**, so it cannot phone home even by accident.
+There is no account, no sync, no analytics. Records live only on the device: `allowBackup`
+is off and cloud/device-transfer backup rules exclude every domain, so financial records are
+not swept into a Google backup. Nothing leaves the phone except an export or backup file the
+user chooses to make.
 
-**The `cloud` flavour** holds `INTERNET` and can therefore make a weaker promise, stated
-honestly on its own About card: records live on the device, there is still no analytics and
-no tracking, and the only thing that ever leaves the phone is a backup the user asked it to
-upload. Nothing syncs on its own in either direction.
+The promise is checkable in the merged manifest rather than taken on trust, and it holds only
+as long as the dependency list does. Every library's manifest is merged into the app's, so a
+library that declared `INTERNET` would add it without a word; nothing that needs a network
+goes into that list.
 
 The app asks for no SMS access at all. Bank alerts are imported by pasting them, which
 costs a copy and a tap and keeps the promise that an app holding this much financial
 detail never reads your messages.
 
-The offline flavour's merged manifest declares exactly these permissions:
+The merged manifest declares exactly these permissions:
 
 | Permission | Declared by | Why |
 | --- | --- | --- |
@@ -80,71 +66,49 @@ The offline flavour's merged manifest declares exactly these permissions:
 | `USE_BIOMETRIC` | this app | Optional biometric unlock. |
 | `USE_FINGERPRINT` | androidx.biometric | Legacy fallback for the above. |
 | `WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` | WorkManager | Pulled in transitively by the scheduler. `ACCESS_NETWORK_STATE` only reads connectivity status; it does not grant network access. |
-
-The cloud flavour adds exactly two: `INTERNET`, and `READ_GSERVICES` from Play Services.
+| `com.moneyplanner.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` | androidx.core | Defined by the library in the app's own name at signature level, so a receiver registered at runtime before Android 13 can be reached only by this app. It gives the app no new access. |
 
 Verify for yourself at any time:
 
 ```bash
-./gradlew processOfflineReleaseMainManifest
+./gradlew processReleaseMainManifest
 ```
 
 ```bash
-grep -o 'uses-permission[^/]*' app/build/intermediates/merged_manifest/offlineRelease/processOfflineReleaseMainManifest/AndroidManifest.xml
+grep -o 'uses-permission[^/]*' app/build/intermediates/merged_manifest/release/processReleaseMainManifest/AndroidManifest.xml
 ```
-
-## Cloud backup
-
-Only in the `cloud` flavour, and only after a Firebase project is attached to the build.
-
-**It is backup, not sync.** Each device uploads whole snapshots named for itself and the
-moment they were taken, the ten newest per device are kept, and restoring is an explicit
-act after a preview that names what is in the file. There is deliberately no automatic
-merge: last-write-wins on a ledger loses records without telling anyone, which is the exact
-failure the rest of this app is built to avoid. Two phones editing the same week therefore
-produce two snapshots, and the user chooses.
-
-Storage rather than Firestore, because the payload is the same backup document the local
-export already writes. A few years of records runs past Firestore's one-megabyte document
-limit and has no business being queried field by field.
-
-Nothing outside the two flavour source sets knows Firebase exists. The app talks to a
-`CloudSync` interface; the offline flavour binds an implementation that reports itself
-unavailable and refuses every call, the cloud flavour one backed by Auth and Storage.
-
-### Attaching a Firebase project
-
-The build works without one — the offline flavour is unaffected and the cloud flavour
-compiles and reports itself as not configured rather than crashing. To make it work:
-
-1. Create a project in the [Firebase console](https://console.firebase.google.com).
-2. Add an Android app with the package name **`com.moneyplanner.cloud`** (note the suffix).
-3. Under **Authentication → Sign-in method**, enable **Email/Password**.
-4. Create a **Storage** bucket.
-5. Download `google-services.json` and put it at `app/src/cloud/google-services.json`. It
-   is git-ignored: not a secret, but it names your project and should not travel with a
-   clone.
-6. Set storage rules so each account can reach only its own folder:
-
-```
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /backups/{userId}/{file} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}
-```
-
-Step 6 is the one that matters. The upload path is `backups/{uid}/...` precisely so a rule
-keyed on `{uid}` is all that stands between accounts, and without it every signed-in user
-could read every other user's ledger.
 
 ## Design system
 
-The UI implements the **Bharat Wealth Framework** from the original design brief. That
-folder is not part of this repository; the tokens it specified live in `ui/theme/`:
+The UI follows the **Personal Money Planner Android design system**, whose tokens, named
+components and eight screen specifications live in
+`stitch_personal_money_planner_design_system/`. Its governing rule is the same one the
+forecast obeys: never pretend to know what the app does not know.
+
+Three things follow from that and are worth naming, because they are the parts a redesign
+would otherwise quietly undo:
+
+- **Confidence is stated, never implied.** Every figure that is not a recorded fact carries
+  a pill: `RECORDED`, `UPCOMING`, `OVERDUE`, `ESTIMATED`, `FORECAST` or `ACCOUNT UNKNOWN`.
+  Each has an icon and a word as well as a colour, so the state survives colourblindness and
+  direct sunlight. One vocabulary across every screen, so it is learned once.
+- **Two balances, both true.** The dashboard leads with what is free to spend, and shows the
+  bank total and the amount earmarked for goals beneath it. Showing only the total invites
+  somebody to spend their savings; showing only the remainder makes it look like money went
+  missing.
+- **Comparisons run to the same point.** A month in progress is compared with the same
+  days of the previous month, never with its total. Where the earlier month was shorter,
+  both months are cut at the last day they share, the month to date is shown apart from the
+  comparison, and the screen says so.
+
+The design system folder also holds mockups of a sign-in screen and an account and sync
+setup screen. Neither is built: the app has no account, and nothing syncs. Both advertise
+AES-256 encryption, which this app does not have — the database is not encrypted (see Known
+gaps) and a backup is plain JSON — so no screen makes that claim.
+
+The earlier **Bharat Wealth Framework** brief set the palette and the grid, which the design
+system keeps. The brief itself is not part of this repository; the tokens it specified live
+in `ui/theme/`:
 
 | Token | Value | Where |
 | --- | --- | --- |
@@ -157,8 +121,8 @@ folder is not part of this repository; the tokens it specified live in `ui/theme
 | Semantic | Emerald `#065F46`, Amber `#B45309`, Rose `#BE123C` | `MoneyColors` |
 | Type | Inter 400/500/600/700 | `Type.kt` |
 
-**Inter is bundled**, not fetched — the offline flavour has no internet permission, so a
-downloadable font would never arrive there. It ships as the variable font and each weight is derived from the
+**Inter is bundled**, not fetched — the app has no internet permission, so a downloadable
+font would never arrive. It ships as the variable font and each weight is derived from the
 `wght` axis, which adds ~400 KB to the release APK (2.8 MB → 3.2 MB). The SIL Open Font
 License is included at `assets/inter_OFL.txt` as redistribution requires.
 
@@ -172,7 +136,10 @@ is deliberately not offered: a wallpaper-derived palette would repaint "money in
 
 ### Bottom navigation
 
-Home · History · Plans · Goals · More, matching the design. People and shared expenses sit
+Home · Forecast · Calendar · Reports · More, matching the design. That ordering is the
+product's argument: an app that opens on a list of what was spent is a ledger, and this one
+opens on what will be left. History (All transactions), the loans, bills, cards and yearly
+expenses that make up Plans, savings goals, and people with their shared expenses all sit
 inside More rather than on the bar — the bar holds what a person opens most days, and a bar
 that holds everything stops being navigable at a glance.
 
@@ -180,7 +147,8 @@ that holds everything stops being navigable at a glance.
 
 - **home_dashboard** → greeting with avatar, Available Now hero with quick-action chips,
   income card, spent/saved pair, forecast card with plain-language verdict
-  (Comfortable / Careful / Tight) and commitment bar, Coming Up list.
+  (Comfortable / Careful / Tight) and commitment bar, and a Coming Up card for the next
+  seven days whose total counts every payment due in them, not only the rows shown.
 - **money_ahead_forecast** → month chip row, Expected Remaining hero, money-in/out split
   bar with paired tiles, Expected Breakdown with semantic icon washes.
 - **add_expense** → hero amount card focused on open at display size, form card, person
@@ -212,15 +180,11 @@ matches it says so and lists what it can answer rather than guessing.
 **Receipt scanning is not built.** It needs ML Kit, which pulls `INTERNET` into the merged
 manifest through its Play Services dependencies — even though the OCR model itself runs
 on-device. Rather than quietly weaken the offline guarantee, the choice was put to the
-user, who chose to keep the app fully offline. Verified: the offline flavour's release
-manifest still has no `INTERNET` permission.
+user, who chose to keep the app fully offline. Verified: the release manifest still has no
+`INTERNET` permission.
 
-Cloud backup arrived later and was given a flavour of its own precisely so that answer
-could stand. Adding the network to every build was the thing worth avoiding, not the
-network itself.
-
-31 further unit tests cover the parser and the assistant, including that every
-suggestion the assistant offers is one it can actually answer.
+40 unit tests cover the parser and the assistant, including that every suggestion the
+assistant offers is one it can actually answer.
 
 ## Budgets, runway and automatic backup
 
@@ -254,10 +218,10 @@ it happens.
 
 ### Schema migrations
 
-The database is at **version 5**, with four migrations. Every statement is copied from the
-schema Room itself exported, so the result is byte-identical to a fresh install; Room
-validates that on open and refuses to start if a migration produces anything different.
-All four schema versions are exported to `app/schemas`.
+The database is at **version 6**, with five migrations. Every table a migration creates is
+copied from the schema Room itself exported, so it matches a fresh install; Room validates
+the result on open and refuses to start if a migration produces anything different. All six
+schema versions are exported to `app/schemas`.
 
 | Version | Change | Notes |
 | --- | --- | --- |
@@ -265,6 +229,7 @@ All four schema versions are exported to `app/schemas`.
 | 2 → 3 | `linkPeriodKey` on expenses; foreign key on shared shares | Existing rows are backfilled by matching each linked expense to the payment recorded on the same day, so history written earlier can still be undone one period at a time. The shares table is rebuilt rather than altered, because SQLite cannot add a foreign key in place. |
 | 3 → 4 | Transfers between the user's own accounts | Purely additive. A database with no transfers describes exactly the position it did before. |
 | 4 → 5 | Expense tags and receipt attachment metadata | Tags are reusable labels; receipts retain only the document-picker URI, not a copied image. |
+| 5 → 6 | Budget rollover and a per-budget alert threshold | Purely additive. SQLite adds a `NOT NULL` column only with a default, and the defaults reproduce the old behaviour exactly — no rollover, and the 80 percent warning every budget had before — so an existing budget behaves on upgrade precisely as it did. |
 
 Room is deliberately **not** given a destructive fallback: a missing migration must fail
 loudly rather than quietly delete a financial history that cannot be recreated.
@@ -274,7 +239,7 @@ loudly rather than quietly delete a financial history that cannot be recreated.
 **SMS auto-capture.** The single biggest reduction in manual entry. `BankSmsParser` reads
 bank alerts into draft transactions — amount, debit or credit, date, merchant, account
 tail — across the formats the major Indian banks actually send. It is rule-based and
-therefore predictable, and 31 tests across two suites hold it to two properties that matter
+therefore predictable, and 42 tests across two suites hold it to two properties that matter
 more than coverage: an amount is never wrong, and a message that is not a transaction is
 never treated as one. The second suite replays real alert formats from the banks people in
 India actually use, which is how the parser was caught rejecting genuine SBI debits. OTPs, due-date reminders, promotional offers and balance replies are all
@@ -367,7 +332,7 @@ more honest than inventing a home for it.
 
 ### Recent activity
 
-Every other list in the app is filtered to one kind of record: expenses in History,
+Every other list in the app is filtered to one kind of record: expenses in All transactions,
 receipts on the income screen, settlements under a person. That is the right way to answer
 "what did I spend on food" and the wrong way to answer "what did I just enter", which is
 what someone needs after typing a figure wrong.
@@ -495,6 +460,20 @@ because warning somebody with four expenses teaches them to ignore the warning b
 it matters. Restoring now reads the file first and shows when it was taken and what is in
 it, while the current records are still there to compare against.
 
+Backups are now at format 5, which carries budgets, rollover and threshold included. No
+earlier format wrote them, and a restore clears every table before refilling it, so restoring
+used to delete every budget without a word. A file from an older version still restores
+everything else, and the preview warns that the budgets in the app now will be removed. The
+preview also counts bills, which it used to look for under a name the writer never used, and
+reports a file holding only what a fresh install creates as empty.
+
+The wipe before a restore now clears tags as well. Nothing cascades into the tags table, so
+it used to survive every restore and every reset, and a tag already on the phone could shadow
+the file's own: the same name made the restore fail outright, the same id relabelled the
+restored expenses. The export also reads every table inside one transaction, so a backup
+taken while something is being saved is a single moment of the ledger rather than one that
+can hold a tag link for an expense it does not contain.
+
 **SMS import is paste-only.** `READ_SMS` is gone. Play grants it almost exclusively to
 default SMS handler apps, so it blocked distribution for a feature that works without it.
 Several messages can be pasted at once. The parser covers more of what the major Indian
@@ -534,7 +513,7 @@ emulator.
 - **`domain/model`** — domain types and `FinancialSnapshot`.
 - **`domain/calc`** — the calculators. Pure functions, no I/O, no clock access.
 - **`data/`** — Room entities, DAOs, repositories, mappers, backup.
-- **`ui/`** — design tokens, shared components, 41 screens across 54 routes.
+- **`ui/`** — design tokens, shared components, 42 screens across 48 routes.
 
 `SnapshotRepository` combines every table into a single `FinancialSnapshot`. Calculators
 are pure functions of that snapshot, so the same data always produces the same numbers and
@@ -590,16 +569,12 @@ reconciliation adjustment.
 
 ## Tests
 
-385 JVM unit tests, all passing, covering every calculator plus the voice parser,
+411 JVM unit tests, all passing, covering every calculator plus the voice parser,
 the bank SMS parser, the assistant, budgets, runway, prepayment and insights:
 
 ```bash
-./gradlew testOfflineDebugUnitTest
+./gradlew testDebugUnitTest
 ```
-
-They run against the offline flavour because everything they test lives in the shared
-source set. Nothing in the suite needs a network, and the flavour that provably cannot
-reach one is the honest place to prove it.
 
 They pin the edge cases that break naive implementations: partial payments, overpayments
 that push a balance past zero, missed installments, deleted and edited records,
@@ -611,19 +586,26 @@ Two worked examples from the product brief are encoded as tests and reproduce ex
 the September cash flow (₹19,000 remaining) and the emergency fund shortfall
 (₹1,80,000 target, ₹70,000 saved, ₹1,10,000 to go).
 
-`app/src/androidTest` holds 15 instrumentation tests: database integrity (cascade deletes,
-restrict constraints, restore ordering), per-period payment undo, and replaying real
-databases through every migration. All 15 pass on an API 37 emulator:
+`app/src/androidTest` holds 23 instrumentation tests: database integrity (cascade deletes,
+restrict constraints, restore ordering), per-period payment undo, backups written and
+restored through the real writer, reader and database (budgets, bills, ledger entries, tags
+already on the device, older files), and replaying real databases through every migration up
+to version 6. All 23 pass on an API 37 emulator:
 
 ```bash
-./gradlew connectedOfflineDebugAndroidTest
+./gradlew connectedDebugAndroidTest
 ```
 
+That task uninstalls the debug app when it finishes, and anything recorded in that install
+goes with it. To keep a device's records, install the two APKs with `adb install -r` and run
+`adb shell am instrument -w com.moneyplanner.debug.test/androidx.test.runner.AndroidJUnitRunner`
+instead.
+
 The exported schemas are registered as `androidTest` assets, because
-`MigrationTestHelper` reads them from the test APK rather than from disk. Without that the
-four migration tests fail on a missing file before they can test anything, which is how
-they sat unrun for so long. The task also needs network on its first run to fetch the
-test platform, so it cannot be run `--offline` from cold.
+`MigrationTestHelper` reads them from the test APK rather than from disk. Without that every
+migration test fails on a missing file before it can test anything, which is how they sat
+unrun for so long. `connectedDebugAndroidTest` also needs network on its first run to fetch
+the test platform, so it cannot be run `--offline` from cold.
 
 > `JAVA_HOME` must point at a complete JDK 17+. If it points at an Android Studio bundled
 > runtime whose `lib` directory is incomplete, Gradle exits immediately with
@@ -644,21 +626,13 @@ printable monthly PDF statement, imports the app's expense CSV format, and the l
 offers a privacy-aware available-balance widget. Receipt scanning is deliberately omitted
 (see below).
 
-The `cloud` flavour adds one thing on top of all of it: signed-in backup and restore
-against a Firebase project of your own. Every other feature is identical between the two.
-
 ## Known gaps
 
 - **80C tracker** remains on the list.
-- **Receipt scanning** is not built, to keep the offline flavour free of any network
-  permission.
+- **Receipt scanning** is not built, to keep the app free of any network permission.
 - **The assistant only understands what it was taught.** It is a rules engine over a fixed
   set of intents, so a question phrased unusually may not match. It says so when that
   happens rather than guessing.
-- **Cloud backup has been exercised only against the abstraction.** Both flavours build,
-  the offline one refuses every call, and the naming that keeps one device from pruning
-  another's snapshots is unit-tested. The Firebase path itself needs a real project to
-  verify end to end.
 - **Future credit card spending is not projected.** Only the outstanding the user has
   recorded is. Guessing next month's card spending would be inventing a number.
 - **Database is not encrypted at rest.** The PIN is stored only as a PBKDF2 hash with a

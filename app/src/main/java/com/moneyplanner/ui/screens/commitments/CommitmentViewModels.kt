@@ -66,6 +66,7 @@ class CardsViewModel @Inject constructor(
                         frequency = Frequency.MONTHLY
                     ),
                     unbilledSpend = CreditCardCalculator.unbilledSpendOn(card, expenses),
+                    unbilledCount = CreditCardCalculator.purchasesOn(card, expenses).size,
                     cycle = CreditCardCalculator.currentCycle(card, now),
                     cycleSpend = CreditCardCalculator.currentCycleSpend(card, expenses, now)
                 )
@@ -111,6 +112,8 @@ data class CardRow(
     val nextDueDate: LocalDate?,
     /** Charged to the card since its statement figure was last entered. */
     val unbilledSpend: Money = Money.ZERO,
+    /** How many purchases that is, so the figure can be judged before it is opened. */
+    val unbilledCount: Int = 0,
     /** Where the card is in its billing cycle. */
     val cycle: StatementCycle? = null,
     /** Charged inside the cycle that has not been billed yet. */

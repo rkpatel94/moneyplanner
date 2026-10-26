@@ -15,6 +15,7 @@ import com.moneyplanner.data.repo.PeopleRepository
 import com.moneyplanner.data.repo.ProfileRepository
 import com.moneyplanner.data.repo.TodayProvider
 import com.moneyplanner.data.repo.VehicleRepository
+import com.moneyplanner.domain.calc.AttentionCalculator
 import com.moneyplanner.domain.model.Account
 import com.moneyplanner.domain.model.AccountType
 import com.moneyplanner.domain.model.Category
@@ -43,13 +44,24 @@ import java.time.LocalDate
 import java.time.YearMonth
 import javax.inject.Inject
 
-/** The month-by-month list of everything spent. */
+/**
+ * The month-by-month list of everything spent, or every expense with no account.
+ *
+ * The second is the same list opened from the dashboard's "expenses with no account" row.
+ * That row promises somewhere the problem can be fixed, and a month view starting at today
+ * could not even show which expenses they were: they can sit in any month, and nothing on
+ * a row says which account paid.
+ */
 @HiltViewModel
 class TransactionsViewModel @Inject constructor(
     private val expenseRepository: ExpenseRepository,
     categoryRepository: CategoryRepository,
-    private val today: TodayProvider
+    private val today: TodayProvider,
+    savedStateHandle: SavedStateHandle
 ) : ViewModel() {
+
+    private val unassignedOnly: Boolean =
+        savedStateHandle.get<Boolean>(Routes.ARG_UNASSIGNED) ?: false
 
     private val selectedMonth = MutableStateFlow(YearMonth.from(today.today()))
     private val categoryFilter = MutableStateFlow<Long?>(null)
@@ -58,10 +70,17 @@ class TransactionsViewModel @Inject constructor(
         selectedMonth,
         categoryFilter,
         expenseRepository.all,
-        categoryRepository.all
-    ) { month, filter, expenses, categories ->
-        val inMonth = expenses.filter { YearMonth.from(it.date) == month }
-        val filtered = if (filter == null) inMonth else inMonth.filter { it.categoryId == filter }
+        categoryRepository.all,
+        // Watched rather than read once, so the "this month" marker moves on at midnight
+        // while the screen is open instead of waiting for some other change.
+        today.todayFlow
+    ) { month, filter, expenses, categories, currentDate ->
+        val listed = if (unassignedOnly) {
+            expenses.filter(AttentionCalculator::isUnassigned)
+        } else {
+            expenses.filter { YearMonth.from(it.date) == month }
+        }
+        val filtered = if (filter == null) listed else listed.filter { it.categoryId == filter }
 
         TransactionsState(
             month = month,
@@ -70,15 +89,20 @@ class TransactionsViewModel @Inject constructor(
             ),
             categories = categories,
             selectedCategoryId = filter,
-            monthTotal = inMonth.sumOfMoney { it.amount },
+            monthTotal = listed.sumOfMoney { it.amount },
             filteredTotal = filtered.sumOfMoney { it.amount },
-            today = today.today(),
+            today = currentDate,
+            unassignedOnly = unassignedOnly,
             isLoading = false
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = TransactionsState(month = YearMonth.from(today.today()))
+        initialValue = TransactionsState(
+            month = YearMonth.from(today.today()),
+            today = today.today(),
+            unassignedOnly = unassignedOnly
+        )
     )
 
     fun selectMonth(month: YearMonth) {
@@ -110,6 +134,8 @@ data class TransactionsState(
     val monthTotal: Money = Money.ZERO,
     val filteredTotal: Money = Money.ZERO,
     val today: LocalDate = LocalDate.now(),
+    /** Every expense with no account or card, across all months, instead of one month. */
+    val unassignedOnly: Boolean = false,
     val isLoading: Boolean = true
 ) {
     val categoriesById: Map<Long, Category> get() = categories.associateBy { it.id }
@@ -401,6 +427,12 @@ data class ExpenseForm(
 ) {
     val canSave: Boolean
         get() = Money.parseOrNull(amountText)?.isPositive == true && categoryId != null
+
+    /**
+     * The amount as typed, once it parses. Shown on the save button so the figure being
+     * committed is under the thumb about to commit it, rather than back up the screen.
+     */
+    val parsedAmount: Money? get() = Money.parseOrNull(amountText)?.takeIf { it.isPositive }
 }
 
 data class ExpenseEditorOptions(

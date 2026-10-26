@@ -37,7 +37,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -84,13 +89,50 @@ fun MoneyText(
     }
 
     Text(
-        text = text,
+        text = typeset(text, style),
         modifier = modifier.semantics { contentDescription = spokenAmount(money) },
         style = style,
         color = resolved,
         maxLines = 1
     )
 }
+
+/**
+ * Sets the sign and the rupee symbol a step lighter than the digits.
+ *
+ * The value is what the eye is looking for. Rendering the marker at the same weight makes
+ * a column of figures read as a wall of ink, and the difference between ₹8,500 and ₹85,000
+ * is exactly what a person is scanning for.
+ *
+ * The ASCII hyphen is swapped for a true minus, which sits on the same optical line as the
+ * digits and matches their width in a tabular face. That is a display concern only: the
+ * formatter keeps producing plain text for exports, and the tests that pin it still hold.
+ */
+private fun typeset(text: String, style: TextStyle): AnnotatedString {
+    val symbolAt = text.indexOf(IndianFormat.RUPEE)
+    val digitWeight = style.fontWeight ?: FontWeight.SemiBold
+    if (symbolAt < 0) return AnnotatedString(text)
+
+    val sign = text.take(symbolAt).replace('-', MINUS)
+    val symbol = text[symbolAt].toString()
+    val digits = text.substring(symbolAt + 1)
+
+    return buildAnnotatedString {
+        withStyle(SpanStyle(fontWeight = FontWeight.Normal)) {
+            if (sign.isNotEmpty()) {
+                append(sign)
+                // A hair of space after the sign, as the design shows, so "− ₹4,800" does
+                // not read as one run-on token.
+                append(' ')
+            }
+            append(symbol)
+        }
+        withStyle(SpanStyle(fontWeight = digitWeight)) { append(digits) }
+    }
+}
+
+/** U+2212. The typographic minus, not the hyphen a keyboard produces. */
+private const val MINUS = '−'
 
 private fun spokenAmount(money: Money): String {
     val rupees = money.paise / 100

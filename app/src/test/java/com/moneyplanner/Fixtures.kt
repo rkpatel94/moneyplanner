@@ -320,3 +320,9 @@ fun contribution(
     accountId = null,
     notes = ""
 )
+
+/** Attaches an expense to a bank account, for the tests that care about attribution. */
+fun Expense.assignedTo(accountId: Long) = copy(accountId = accountId)
+
+/** Puts an expense on a credit card instead, which is attribution of a different shape. */
+fun Expense.onCard(cardId: Long) = copy(creditCardId = cardId)

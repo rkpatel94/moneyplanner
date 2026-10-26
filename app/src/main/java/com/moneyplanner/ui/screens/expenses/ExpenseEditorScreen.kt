@@ -196,7 +196,16 @@ fun ExpenseEditorScreen(
                         .padding(20.dp)
                 ) {
                     PrimaryActionButton(
-                        text = if (form.isEditing) "Save changes" else "Save expense",
+                        // The figure rides on the button. At this point the amount field
+                        // is usually scrolled away behind the keyboard, and a mistyped
+                        // digit is easiest to catch in the second before it is saved.
+                        text = buildString {
+                            append(if (form.isEditing) "Save changes" else "Save expense")
+                            form.parsedAmount?.let {
+                                append(" · ")
+                                append(IndianFormat.format(it))
+                            }
+                        },
                         onClick = { viewModel.save(onBack) },
                         enabled = form.canSave
                     )

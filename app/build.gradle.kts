@@ -71,37 +71,6 @@ android {
         }
     }
 
-    /**
-     * Two builds of the same app, differing only in whether they can reach a network.
-     *
-     * The offline flavour is the original app and keeps the guarantee the README makes:
-     * no INTERNET permission in its merged manifest, verifiable by anyone who cares to
-     * check. It has no Firebase dependency at all, so nothing can quietly reintroduce
-     * one through a transitive.
-     *
-     * The cloud flavour adds Firebase Auth and Storage so a lost phone is not a lost
-     * financial history. It necessarily has INTERNET, and its own privacy story.
-     *
-     * Nothing outside the two source sets knows which is which: the app talks to a
-     * CloudSync interface, and each flavour supplies its own binding.
-     */
-    flavorDimensions += "connectivity"
-
-    productFlavors {
-        create("offline") {
-            dimension = "connectivity"
-            isDefault = true
-            buildConfigField("boolean", "CLOUD_ENABLED", "false")
-        }
-        create("cloud") {
-            dimension = "connectivity"
-            // A distinct id so both can sit on one device while this is being tested.
-            applicationIdSuffix = ".cloud"
-            versionNameSuffix = "-cloud"
-            buildConfigField("boolean", "CLOUD_ENABLED", "true")
-        }
-    }
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -115,7 +84,6 @@ android {
 
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
     packaging {
@@ -151,6 +119,9 @@ ksp {
 }
 
 dependencies {
+    // Nothing in this list may need a network. Each library's manifest is merged into the
+    // app's, so one that declares INTERNET would quietly add it here and break the promise
+    // that the app has no network access at all and keeps every record on the device.
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.kotlinx.coroutines.android)
@@ -184,13 +155,6 @@ dependencies {
     // Writing scheduled backups into a folder the user picks, with no storage permission.
     implementation(libs.androidx.documentfile)
 
-    // Cloud flavour only, so the offline build cannot pull in Play Services or the
-    // INTERNET permission through a transitive dependency.
-    "cloudImplementation"(platform(libs.firebase.bom))
-    "cloudImplementation"(libs.firebase.auth)
-    "cloudImplementation"(libs.firebase.storage)
-    "cloudImplementation"(libs.kotlinx.coroutines.play.services)
-
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.test.junit)
@@ -199,33 +163,4 @@ dependencies {
     // Replays a real v2 database through the migration, which is the only way to know a
     // migration works before it runs on somebody's actual records.
     androidTestImplementation(libs.androidx.room.testing)
-}
-
-
-/**
- * The Google services plugin is applied only when a configuration file is present.
- *
- * Applying it unconditionally would break every build on a machine without
- * google-services.json, including the offline flavour that has nothing to do with
- * Firebase. Applied conditionally, a checkout with no Firebase project still builds and
- * tests cleanly, and the cloud flavour reports itself as unconfigured at runtime rather
- * than crashing.
- *
- * Put the file from the Firebase console at app/src/cloud/google-services.json. It is
- * git-ignored: it is not a secret, but it names your project and does not belong to
- * anyone who clones this.
- */
-val googleServicesConfig = listOf(
-    file("src/cloud/google-services.json"),
-    file("google-services.json")
-).firstOrNull { it.exists() }
-
-if (googleServicesConfig != null) {
-    apply(plugin = "com.google.gms.google-services")
-    logger.lifecycle("Firebase config found at ${googleServicesConfig.path}; cloud flavour is configured.")
-} else {
-    logger.lifecycle(
-        "No google-services.json found. The offline flavour builds normally; " +
-            "the cloud flavour will build but report itself as not configured."
-    )
 }

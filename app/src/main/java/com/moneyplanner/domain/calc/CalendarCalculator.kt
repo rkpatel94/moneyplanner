@@ -48,8 +48,10 @@ object CalendarCalculator {
                 isScheduled = true,
                 // Still expected, but its day has been and gone. Marked rather than shown
                 // as though it were ordinary, because a rent due on the 5th displayed the
-                // same way on the 9th tells the user nothing is wrong.
-                isOverdue = item.date.isBefore(snapshot.today)
+                // same way on the 9th tells the user nothing is wrong. The forecast's own
+                // flag counts too: a late person balance is carried forward to today, so
+                // its date alone would pass it off as due today rather than weeks late.
+                isOverdue = item.isOverdue || item.date.isBefore(snapshot.today)
             )
         }
 

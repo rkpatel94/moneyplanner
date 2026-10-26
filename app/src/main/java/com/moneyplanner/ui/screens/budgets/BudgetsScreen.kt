@@ -206,7 +206,11 @@ private fun BudgetCard(status: BudgetStatus, onDelete: () -> Unit) {
         ) {
             MoneyText(status.spent, style = MaterialTheme.typography.titleLarge)
             Text(
-                "of ${IndianFormat.format(status.budget.amount)}",
+                // Against the limit actually in force, not the base figure. With money
+                // carried forward the two differ, and pairing the spend with the smaller
+                // one makes an ordinary month look like an overspend, which is the exact
+                // thing carry-forward exists to avoid.
+                "of ${IndianFormat.format(status.effectiveLimit)}",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -218,6 +222,23 @@ private fun BudgetCard(status: BudgetStatus, onDelete: () -> Unit) {
             color = barColor,
             label = "${status.categoryName}: ${status.usedPercent} percent of the budget used"
         )
+
+        // The arithmetic behind a limit that is not the one the user typed. Without this
+        // the larger number looks like a bug in the app rather than last month's thrift.
+        if (status.hasCarryOver) {
+            Spacer(Modifier.height(10.dp))
+            BudgetLine("Monthly budget", IndianFormat.format(status.budget.amount))
+            BudgetLine(
+                "Carried forward",
+                "+ " + IndianFormat.format(status.carriedOver),
+                colors.positive
+            )
+            BudgetLine(
+                "Available this month",
+                IndianFormat.format(status.effectiveLimit),
+                emphasise = true
+            )
+        }
 
         Spacer(Modifier.height(10.dp))
         Row(
@@ -240,17 +261,6 @@ private fun BudgetCard(status: BudgetStatus, onDelete: () -> Unit) {
                 status.summary(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        // A limit larger than the one the user set needs explaining, or it reads as a bug.
-        if (status.hasCarryOver) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "${IndianFormat.format(status.carriedOver)} carried over, so this month's " +
-                    "limit is ${IndianFormat.format(status.effectiveLimit)}.",
-                style = MaterialTheme.typography.bodySmall,
-                color = colors.positive
             )
         }
 
@@ -347,4 +357,43 @@ private fun BudgetEditorDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
+}
+
+/**
+ * One line of the budget arithmetic: what it is on the left, how much on the right.
+ *
+ * Deliberately a plain row rather than a chart. Three numbers that add up are read faster
+ * as three numbers than as anything drawn.
+ */
+@Composable
+private fun BudgetLine(
+    label: String,
+    value: String,
+    valueColor: Color? = null,
+    emphasise: Boolean = false
+) {
+    val colors = MoneyTheme.colors
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.textSecondary,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            value,
+            style = if (emphasise) {
+                MaterialTheme.typography.titleMedium
+            } else {
+                MaterialTheme.typography.bodySmall
+            },
+            color = valueColor ?: colors.textPrimary
+        )
+    }
 }

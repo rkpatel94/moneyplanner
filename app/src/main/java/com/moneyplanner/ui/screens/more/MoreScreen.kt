@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Message
@@ -51,6 +52,7 @@ import com.moneyplanner.ui.components.SectionCard
  */
 @Composable
 fun MoreScreen(
+    onOpenTransactions: () -> Unit,
     onOpenRecentActivity: () -> Unit,
     onOpenAccounts: () -> Unit,
     onOpenPeople: () -> Unit,
@@ -63,8 +65,6 @@ fun MoreScreen(
     onOpenEmergencyFund: () -> Unit,
     onOpenVehicles: () -> Unit,
     onOpenFamily: () -> Unit,
-    onOpenCalendar: () -> Unit,
-    onOpenReports: () -> Unit,
     onOpenAffordability: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenBudgets: () -> Unit,
@@ -82,6 +82,12 @@ fun MoreScreen(
 
         item {
             SectionCard(title = "Where your money is") {
+                MoreRow(
+                    Icons.AutoMirrored.Filled.ReceiptLong,
+                    "All transactions",
+                    "Every expense, month by month, by category",
+                    onOpenTransactions
+                )
                 MoreRow(
                     Icons.Default.History,
                     "Recent activity",
@@ -201,18 +207,6 @@ fun MoreScreen(
 
         item {
             SectionCard(title = "Understand") {
-                MoreRow(
-                    Icons.Default.CalendarMonth,
-                    "Money calendar",
-                    "Every dated payment in one place",
-                    onOpenCalendar
-                )
-                MoreRow(
-                    Icons.Default.Assessment,
-                    "Reports",
-                    "Where your money actually went",
-                    onOpenReports
-                )
                 MoreRow(
                     Icons.Default.ShoppingCart,
                     "Can I afford it?",

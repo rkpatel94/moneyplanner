@@ -160,8 +160,38 @@ fun CardsScreen(
                         }
                     }
 
-                    Spacer(Modifier.height(8.dp))
-                    SummaryRow("On your last statement", card.currentOutstanding, emphasise = true)
+                    Spacer(Modifier.height(10.dp))
+
+                    // The bank's number and the app's number, in that order and never
+                    // added together silently. Paying the total when the statement is
+                    // smaller is the mistake this layout exists to prevent.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "LAST STATEMENT",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.textSecondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        row.cycle?.let { cycle ->
+                            val days = cycle.daysUntilDue(state.today)
+                            StatusPill(
+                                text = when {
+                                    days < 0L -> "Overdue"
+                                    days == 0L -> "Due today"
+                                    days == 1L -> "Due tomorrow"
+                                    else -> "Due in " + days + " days"
+                                },
+                                containerColor = if (days <= 3L) {
+                                    colors.warningContainer
+                                } else {
+                                    colors.neutralContainer
+                                },
+                                contentColor = if (days <= 3L) colors.warning else colors.neutral
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    SummaryRow("Statement outstanding", card.currentOutstanding, emphasise = true)
                     if (card.minimumDue.isPositive) {
                         SummaryRow("Minimum due", card.minimumDue)
                     }
@@ -170,15 +200,42 @@ fun CardsScreen(
                     // statement already contains everything charged before it was issued,
                     // so adding these on top of that number would count them twice.
                     if (row.hasUnbilled) {
-                        SummaryRow("Spent since", row.unbilledSpend)
-                        SummaryRow("Owed now", row.projectedOutstanding, emphasise = true)
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            "UNBILLED SINCE THEN",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.textSecondary
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        SummaryRow(
+                            if (row.unbilledCount == 1) {
+                                "1 purchase not yet billed"
+                            } else {
+                                row.unbilledCount.toString() + " purchases not yet billed"
+                            },
+                            row.unbilledSpend
+                        )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Purchases you have recorded on this card since you last " +
-                                "entered its statement figure. Your bank has not billed " +
-                                "them yet.",
+                            "Recorded on this card since you last entered its statement " +
+                                "figure. Your bank has not billed them yet.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = colors.textSecondary
+                        )
+
+                        Spacer(Modifier.height(12.dp))
+                        HorizontalDivider(color = colors.borderSubtle)
+                        Spacer(Modifier.height(10.dp))
+
+                        // The sum written out, because the whole point is that the reader
+                        // can see where the larger number comes from.
+                        SummaryRow("Owed on the card in total", row.projectedOutstanding, emphasise = true)
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            IndianFormat.format(card.currentOutstanding) + " statement + " +
+                                IndianFormat.format(row.unbilledSpend) + " unbilled",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.textTertiary
                         )
                     }
 

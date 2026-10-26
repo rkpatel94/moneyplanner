@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -55,6 +58,10 @@ import com.moneyplanner.data.repo.SnapshotRepository
 import com.moneyplanner.domain.calc.ForecastCalculator
 import com.moneyplanner.domain.calc.ForecastItemKind
 import com.moneyplanner.domain.calc.MonthForecast
+import com.moneyplanner.domain.calc.ShortfallExplainer
+import com.moneyplanner.domain.calc.ShortfallExplanation
+import com.moneyplanner.ui.components.Confidence
+import com.moneyplanner.ui.components.ConfidencePill
 import com.moneyplanner.ui.components.EmptyState
 import com.moneyplanner.ui.components.IconWash
 import com.moneyplanner.ui.components.InOutBar
@@ -66,7 +73,9 @@ import com.moneyplanner.ui.components.SummaryRow
 import com.moneyplanner.ui.theme.MoneyTheme
 import com.moneyplanner.di.DefaultDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.moneyplanner.ui.nav.TabFocus
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -80,10 +89,19 @@ import javax.inject.Inject
 class ForecastViewModel @Inject constructor(
     snapshotRepository: SnapshotRepository,
     settingsStore: SettingsStore,
+    tabFocus: TabFocus,
     @DefaultDispatcher private val computation: CoroutineDispatcher
 ) : ViewModel() {
 
     private val selectedIndex = MutableStateFlow(0)
+
+    init {
+        // A link from elsewhere is about the month in progress; the bar alone returns to
+        // whichever month was last chosen here.
+        viewModelScope.launch {
+            tabFocus.forecast.requests.collect { selectedIndex.value = 0 }
+        }
+    }
 
     val state: StateFlow<ForecastState> = combine(
         snapshotRepository.snapshot,
@@ -94,6 +112,21 @@ class ForecastViewModel @Inject constructor(
         ForecastState(
             months = months,
             selectedIndex = index.coerceIn(0, (months.size - 1).coerceAtLeast(0)),
+            shortfall = ShortfallExplainer.explain(months),
+            basis = ForecastBasis(
+                // Only completed months of history count. The month in progress would drag
+                // the average down for no reason other than the date.
+                monthsOfHistory = snapshot.expenses
+                    .map { YearMonth.from(it.date) }
+                    .filter { it < YearMonth.from(snapshot.today) }
+                    .distinct()
+                    .size,
+                recurringCommitments = snapshot.emis.count { it.isActive } +
+                    snapshot.bills.size +
+                    snapshot.annualExpenses.size,
+                estimates = snapshot.bills.count { it.amountType.name == "ESTIMATED" },
+                usesSpendingHistory = months.firstOrNull()?.isProjectionBasedOnHistory ?: false
+            ),
             hasPlanningData = snapshot.incomeSources.isNotEmpty() ||
                 snapshot.bills.isNotEmpty() ||
                 snapshot.emis.isNotEmpty(),
@@ -115,6 +148,10 @@ class ForecastViewModel @Inject constructor(
 data class ForecastState(
     val months: List<MonthForecast> = emptyList(),
     val selectedIndex: Int = 0,
+    /** The first month projected to end below zero, and the payment that causes it. */
+    val shortfall: ShortfallExplanation? = null,
+    /** What the projection is built from, so its confidence can be judged. */
+    val basis: ForecastBasis = ForecastBasis(),
     val hasPlanningData: Boolean = false,
     val isLoading: Boolean = true
 ) {
@@ -131,7 +168,8 @@ data class ForecastState(
  */
 @Composable
 fun ForecastScreen(
-    onOpenCalendar: () -> Unit,
+    /** Opens the calendar on the given month. */
+    onOpenCalendar: (YearMonth) -> Unit,
     onOpenAffordability: () -> Unit,
     viewModel: ForecastViewModel = hiltViewModel()
 ) {
@@ -165,12 +203,25 @@ fun ForecastScreen(
                     style = MaterialTheme.typography.headlineMedium
                 )
                 Text(
-                    "Built only from what you have entered.",
+                    if (state.months.isEmpty()) {
+                        "Built only from what you have entered."
+                    } else {
+                        DateUtil.formatMonthShort(state.months.first().month) + " to " +
+                            DateUtil.formatMonthShort(state.months.last().month)
+                    },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = colors.textSecondary
                 )
             }
         }
+
+        // The alarm comes before the detail. Somebody who is going to run short in
+        // December should not have to tap through eleven month chips to find out.
+        state.shortfall?.let { shortfall ->
+            item { ShortfallCard(shortfall, onOpenCalendar) }
+        }
+
+        item { ForecastBasisCard(state.basis) }
 
         item {
             Row(
@@ -198,7 +249,7 @@ fun ForecastScreen(
         if (month != null) {
             item { ExpectedRemainingCard(month) }
             item { BreakdownCard(month) }
-            item { DatedItemsCard(month, onOpenCalendar) }
+            item { DatedItemsCard(month) }
 
             item {
                 SectionCard(
@@ -226,6 +277,135 @@ fun ForecastScreen(
 }
 
 /** The headline figure, with the in-against-out split directly beneath it. */
+/**
+ * The month the money is projected to run out, and the payment that takes it there.
+ *
+ * Calm on purpose. A red full-bleed panel about a date four months away is how somebody
+ * decides the app is stressful and stops opening it. This states the date, the figure and
+ * the cause, then offers the screen where it can be dealt with. No score, no exclamation,
+ * no advice about spending less.
+ */
+@Composable
+private fun ShortfallCard(
+    shortfall: ShortfallExplanation,
+    onOpenCalendar: (YearMonth) -> Unit
+) {
+    val colors = MoneyTheme.colors
+
+    SectionCard(containerColor = colors.negativeContainer) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.WarningAmber,
+                contentDescription = null,
+                tint = colors.negative,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "POSSIBLE SHORTFALL",
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.negative
+            )
+        }
+
+        Spacer(Modifier.height(14.dp))
+        Row(verticalAlignment = Alignment.Bottom) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Month",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textSecondary
+                )
+                Text(
+                    DateUtil.formatMonth(shortfall.month),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = colors.textPrimary
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "Projected to end at",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.textSecondary
+                )
+                MoneyText(
+                    money = shortfall.projectedBalance,
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = colors.negative
+                )
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+        Text(
+            buildString {
+                if (shortfall.hasCulprit) {
+                    append(shortfall.culpritTitle)
+                    append(" (")
+                    append(IndianFormat.format(shortfall.culpritAmount))
+                    append(")")
+                    val relief = shortfall.daysUntilRelief
+                    if (relief != null && relief > 0) {
+                        append(" falls ")
+                        append(relief)
+                        append(if (relief == 1L) " day" else " days")
+                        append(" before the next money is expected.")
+                    } else {
+                        append(" is the largest payment that month.")
+                    }
+                } else {
+                    // No single payment dominates, so naming one would point at the wrong
+                    // thing. Ordinary spending adding up is a different problem.
+                    append(
+                        "No single payment causes this. The month's ordinary spending is " +
+                            "projected to outrun what is expected to come in."
+                    )
+                }
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.textPrimary
+        )
+
+        Spacer(Modifier.height(14.dp))
+        OutlinedButton(
+            onClick = { onOpenCalendar(shortfall.month) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("See what is dated that month")
+        }
+    }
+}
+
+/**
+ * What the projection rests on.
+ *
+ * The forecast is only as good as its inputs, and the user is the only person who can tell
+ * whether three months of history is enough. Stating the inputs is how a projection stays a
+ * projection rather than becoming an oracle.
+ */
+@Composable
+private fun ForecastBasisCard(basis: ForecastBasis) {
+    val colors = MoneyTheme.colors
+
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            ConfidencePill(Confidence.FORECAST)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "What this is built from",
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.textSecondary
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            basis.describe(),
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.textSecondary
+        )
+    }
+}
+
 @Composable
 private fun ExpectedRemainingCard(month: MonthForecast) {
     val colors = MoneyTheme.colors
@@ -479,7 +659,7 @@ private data class BreakdownRow(
 
 /** The dated lines behind the month, collapsed by default to keep the summary clean. */
 @Composable
-private fun DatedItemsCard(month: MonthForecast, onOpenCalendar: () -> Unit) {
+private fun DatedItemsCard(month: MonthForecast) {
     if (month.items.isEmpty()) return
     var expanded by remember(month.month) { mutableStateOf(false) }
     val colors = MoneyTheme.colors
@@ -528,6 +708,13 @@ private fun DatedItemsCard(month: MonthForecast, onOpenCalendar: () -> Unit) {
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            // Late money is said in so many words. A missed repayment is
+                            // carried forward to today so it stays in view, which makes its
+                            // date look like an ordinary due date; the flag is what knows.
+                            if (item.isOverdue) {
+                                Spacer(Modifier.height(4.dp))
+                                ConfidencePill(Confidence.OVERDUE)
+                            }
                         }
                         MoneyText(
                             money = item.signedAmount,
@@ -548,4 +735,57 @@ private fun iconFor(kind: ForecastItemKind): ImageVector = when (kind) {
     ForecastItemKind.EMI -> Icons.Default.AccountBalance
     ForecastItemKind.BILL, ForecastItemKind.ANNUAL -> Icons.Default.CalendarMonth
     ForecastItemKind.CREDIT_CARD -> Icons.Default.CreditCard
+}
+
+/**
+ * The inputs behind the projection, counted rather than characterised.
+ *
+ * Written as a sentence rather than a row of statistics because the point is a reader
+ * judging whether to trust the numbers above, and "based on two months" does that better
+ * than a dashboard tile labelled 2.
+ */
+data class ForecastBasis(
+    val monthsOfHistory: Int = 0,
+    val recurringCommitments: Int = 0,
+    val estimates: Int = 0,
+    /** False until there is enough history for the everyday spending figure to mean anything. */
+    val usesSpendingHistory: Boolean = false
+) {
+    fun describe(): String {
+        val parts = mutableListOf<String>()
+
+        parts += when (monthsOfHistory) {
+            0 -> "no completed months of spending yet"
+            1 -> "1 completed month of spending"
+            else -> "$monthsOfHistory completed months of spending"
+        }
+        if (recurringCommitments > 0) {
+            parts += if (recurringCommitments == 1) {
+                "1 recurring commitment"
+            } else {
+                "$recurringCommitments recurring commitments"
+            }
+        }
+        if (estimates > 0) {
+            parts += if (estimates == 1) {
+                "1 amount you estimated"
+            } else {
+                "$estimates amounts you estimated"
+            }
+        }
+
+        val list = when (parts.size) {
+            1 -> parts[0]
+            2 -> parts[0] + " and " + parts[1]
+            else -> parts.dropLast(1).joinToString(", ") + " and " + parts.last()
+        }
+
+        val caveat = if (!usesSpendingHistory) {
+            " Everyday spending is not projected yet: there is not enough history for it " +
+                "to be worth a guess."
+        } else {
+            ""
+        }
+        return "Based on " + list + "." + caveat
+    }
 }

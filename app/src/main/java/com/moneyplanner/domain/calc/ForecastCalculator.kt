@@ -282,13 +282,15 @@ object ForecastCalculator {
                             } else {
                                 "Money to repay"
                             }
-                        }.let { if (isOverdue) "$it · overdue" else it },
+                        },
                         amount = row.outstandingAmount,
                         kind = if (row.entry.direction == LedgerDirection.THEY_OWE_ME) {
                             ForecastItemKind.PERSON_INCOMING
                         } else {
                             ForecastItemKind.PERSON_OUTGOING
                         },
+                        isOverdue = isOverdue,
+                        originallyDue = expected.takeIf { isOverdue },
                         sourceId = personId,
                         isEstimate = false
                     )
@@ -310,6 +312,7 @@ object ForecastCalculator {
                             subtitle = "Installment ${installment.installmentNumber} of ${emi.totalInstallments}",
                             amount = installment.amount,
                             kind = ForecastItemKind.EMI,
+                            isOverdue = installment.dueDate.isBefore(snapshot.today),
                             sourceId = emi.id,
                             isEstimate = false
                         )
@@ -336,6 +339,7 @@ object ForecastCalculator {
                         subtitle = if (bill.amountType.name == "ESTIMATED") "Estimated" else "Due",
                         amount = bill.amount,
                         kind = ForecastItemKind.BILL,
+                        isOverdue = date.isBefore(snapshot.today),
                         sourceId = bill.id,
                         isEstimate = bill.amountType.name == "ESTIMATED"
                     )
@@ -358,6 +362,8 @@ object ForecastCalculator {
                     subtitle = "Yearly commitment",
                     amount = annual.amount,
                     kind = ForecastItemKind.ANNUAL,
+                    isOverdue = DateUtil.dayInMonth(month, annual.dueDayOfMonth)
+                        .isBefore(snapshot.today),
                     sourceId = annual.id,
                     isEstimate = false
                 )
@@ -403,6 +409,7 @@ object ForecastCalculator {
                     },
                     amount = owed,
                     kind = ForecastItemKind.CREDIT_CARD,
+                    isOverdue = dueOn.isBefore(snapshot.today),
                     sourceId = card.id,
                     isEstimate = false
                 )
@@ -455,10 +462,30 @@ data class ForecastItem(
     val kind: ForecastItemKind,
     val sourceId: Long?,
     /** True when the amount is the user's own estimate rather than a fixed figure. */
-    val isEstimate: Boolean
+    val isEstimate: Boolean,
+    /**
+     * True when the due date has already passed and the money has not moved.
+     *
+     * Stored rather than derived from [date], because an overdue person entry is carried
+     * forward to today so it stays visible, which loses the original date. It used to be
+     * expressed only by appending " · overdue" to the subtitle, which meant the screen had
+     * to read English prose to colour a row. A flag is something the UI can act on.
+     */
+    val isOverdue: Boolean = false,
+    /**
+     * The day it was really due, when [date] has been moved forward to keep it in view.
+     *
+     * Null for everything dated where it falls. Without it, a balance weeks late sorts
+     * after a bill that went overdue yesterday, because both are judged by a date that
+     * says today, and the longest-standing debt is the one pushed out of sight.
+     */
+    val originallyDue: LocalDate? = null
 ) {
     val isInflow: Boolean get() = kind.isInflow
     val signedAmount: Money get() = if (isInflow) amount else -amount
+
+    /** When it fell due, which for a late item carried forward is not the day it is shown on. */
+    val dueDate: LocalDate get() = originallyDue ?: date
 }
 
 data class MonthForecast(

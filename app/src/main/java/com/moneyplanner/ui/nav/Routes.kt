@@ -1,16 +1,16 @@
 package com.moneyplanner.ui.nav
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
-import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.outlined.TrendingUp
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.TrackChanges
+import androidx.compose.material.icons.outlined.BarChart
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.TrackChanges
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
@@ -22,7 +22,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 object Routes {
 
     const val DASHBOARD = "dashboard"
-    const val TRANSACTIONS = "transactions"
+    const val TRANSACTIONS = "transactions?unassigned={unassigned}"
+    fun transactions() = "transactions"
+
+    /** Every expense with no account or card, from every month, so each can be assigned. */
+    fun unassignedTransactions() = "transactions?unassigned=true"
     const val FORECAST = "forecast"
     const val PEOPLE = "people"
     const val PLANS = "plans"
@@ -99,13 +103,6 @@ object Routes {
     // backup are sections within it and have no routes of their own.
     const val SETTINGS = "settings"
     const val CATEGORIES = "settings/categories"
-
-    /**
-     * Cloud backup is its own screen rather than a section of Settings: it has a sign-in,
-     * a list and two destructive actions, which is more than a card can carry honestly.
-     * Only the cloud flavour links to it.
-     */
-    const val CLOUD_BACKUP = "settings/cloud"
     const val ACCOUNTS = "settings/accounts?editTransfer={transferId}"
     fun accounts() = "settings/accounts"
 
@@ -119,6 +116,7 @@ object Routes {
     const val ARG_PERSON_ID = "personId"
     const val ARG_SETTLEMENT_ID = "settlementId"
     const val ARG_TRANSFER_ID = "transferId"
+    const val ARG_UNASSIGNED = "unassigned"
     const val ARG_EMI_ID = "emiId"
     const val ARG_CARD_ID = "cardId"
     const val ARG_BILL_ID = "billId"
@@ -130,9 +128,12 @@ object Routes {
 /**
  * The five destinations on the bottom bar, as specified by the design.
  *
- * People and shared expenses sit inside More rather than on the bar. The bar is reserved
- * for the things a person opens most days, and a bar that holds everything stops being
- * navigable at a glance.
+ * The bar carries the forward-looking half of the app: today, the next twelve months, the
+ * dates money moves, and where it went. History, plans, goals and people sit inside More.
+ *
+ * That ordering is the product's argument. An app that opens on a list of what was spent
+ * is a ledger; this one opens on what will be left, and the bar should say so. A bar that
+ * holds everything stops being navigable at a glance.
  */
 enum class TopLevelDestination(
     val route: String,
@@ -141,13 +142,18 @@ enum class TopLevelDestination(
     val selectedIcon: ImageVector
 ) {
     HOME(Routes.DASHBOARD, "Home", Icons.Outlined.Home, Icons.Filled.Home),
-    HISTORY(
-        Routes.TRANSACTIONS,
-        "History",
-        Icons.AutoMirrored.Outlined.ReceiptLong,
-        Icons.AutoMirrored.Filled.ReceiptLong
+    FORECAST(
+        Routes.FORECAST,
+        "Forecast",
+        Icons.AutoMirrored.Outlined.TrendingUp,
+        Icons.AutoMirrored.Filled.TrendingUp
     ),
-    PLANS(Routes.PLANS, "Plans", Icons.Outlined.CalendarMonth, Icons.Filled.CalendarMonth),
-    GOALS(Routes.GOALS, "Goals", Icons.Outlined.TrackChanges, Icons.Filled.TrackChanges),
+    CALENDAR(
+        Routes.CALENDAR,
+        "Calendar",
+        Icons.Outlined.CalendarMonth,
+        Icons.Filled.CalendarMonth
+    ),
+    REPORTS(Routes.REPORTS, "Reports", Icons.Outlined.BarChart, Icons.Filled.BarChart),
     MORE(Routes.MORE, "More", Icons.Outlined.Menu, Icons.Filled.Menu)
 }

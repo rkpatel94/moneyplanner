@@ -134,41 +134,78 @@ private val DarkScheme = darkColorScheme(
 data class MoneyColors(
     val positive: Color,
     val positiveContainer: Color,
+    /** Hairline around a positive pill. Meaning never rests on fill colour alone. */
+    val positiveBorder: Color,
     val negative: Color,
     val negativeContainer: Color,
+    val negativeBorder: Color,
     val warning: Color,
     val warningContainer: Color,
     val onWarningContainer: Color,
+    val warningBorder: Color,
     val neutral: Color,
+    val neutralContainer: Color,
+    val neutralBorder: Color,
+    /**
+     * Three levels of text emphasis, so a figure and the date under it are separated by
+     * weight and colour rather than by size alone.
+     */
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val textTertiary: Color,
     /** Card boundary hairline. */
     val cardBorder: Color,
+    /** The quieter divider used inside a card, between rows of one list. */
+    val borderSubtle: Color,
+    /** Nested containers and table headers, one step up from a plain card. */
+    val cardElevated: Color,
     /** Tint behind a semantic icon, at roughly ten percent of its colour. */
     val iconWash: Color
 )
 
 private val LightMoneyColors = MoneyColors(
     positive = Color(0xFF065F46),
-    positiveContainer = Color(0xFFD9F2E7),
+    positiveContainer = Color(0xFFE6F4EA),
+    positiveBorder = Color(0xFFA7D7B5),
     negative = Color(0xFFBE123C),
-    negativeContainer = Color(0xFFFFE2E7),
+    negativeContainer = Color(0xFFFCE8E6),
+    negativeBorder = Color(0xFFF5B7B1),
     warning = Color(0xFFB45309),
-    warningContainer = Color(0xFFFDF0DC),
+    warningContainer = Color(0xFFFEF3C7),
     onWarningContainer = Color(0xFF3D2A00),
-    neutral = Color(0xFF6B6C78),
+    warningBorder = Color(0xFFFCD34D),
+    neutral = Color(0xFF475569),
+    neutralContainer = Color(0xFFF1F5F9),
+    neutralBorder = Color(0xFFCBD5E1),
+    textPrimary = Color(0xFF0F172A),
+    textSecondary = Color(0xFF475569),
+    textTertiary = Color(0xFF64748B),
     cardBorder = SoftBlue,
+    borderSubtle = Color(0xFFF0F2F8),
+    cardElevated = Color(0xFFF1F3F9),
     iconWash = SoftBlue
 )
 
 private val DarkMoneyColors = MoneyColors(
     positive = Color(0xFF6FD6A6),
     positiveContainer = Color(0xFF12372A),
+    positiveBorder = Color(0xFF2C6B51),
     negative = Color(0xFFFF9DAF),
     negativeContainer = Color(0xFF4A1122),
+    negativeBorder = Color(0xFF8A2440),
     warning = Color(0xFFF2C464),
     warningContainer = Color(0xFF3E2E00),
     onWarningContainer = Color(0xFFFDF0DC),
-    neutral = Color(0xFF9A9AA6),
-    cardBorder = Color(0xFF2B2E45),
+    warningBorder = Color(0xFF7A5A12),
+    neutral = Color(0xFF94A3B8),
+    neutralContainer = Color(0xFF1E222B),
+    neutralBorder = Color(0xFF3A4150),
+    textPrimary = Color(0xFFE2E8F0),
+    textSecondary = Color(0xFF94A3B8),
+    textTertiary = Color(0xFF64748B),
+    cardBorder = Color(0xFF2D313A),
+    borderSubtle = Color(0xFF23262E),
+    cardElevated = Color(0xFF22242B),
     iconWash = Color(0xFF23263A)
 )
 

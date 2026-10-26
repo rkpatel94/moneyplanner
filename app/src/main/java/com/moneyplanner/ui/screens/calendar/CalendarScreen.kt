@@ -53,15 +53,19 @@ import com.moneyplanner.domain.calc.ForecastCalculator
 import com.moneyplanner.domain.calc.CalendarCalculator
 import com.moneyplanner.domain.calc.CalendarEntry
 import com.moneyplanner.domain.calc.ForecastItem
+import com.moneyplanner.ui.components.Confidence
+import com.moneyplanner.ui.components.ConfidencePill
+import com.moneyplanner.ui.components.MonthSelector
 import com.moneyplanner.ui.components.LoadingState
 import com.moneyplanner.ui.components.MoneyText
 import com.moneyplanner.ui.components.SectionCard
 import com.moneyplanner.ui.components.StatusPill
-import com.moneyplanner.ui.screens.expenses.MonthSelector
 import com.moneyplanner.ui.theme.MoneyTheme
 import com.moneyplanner.di.DefaultDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
+import com.moneyplanner.ui.nav.TabFocus
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -77,6 +81,7 @@ import javax.inject.Inject
 @HiltViewModel
 class CalendarViewModel @Inject constructor(
     snapshotRepository: SnapshotRepository,
+    tabFocus: TabFocus,
     @DefaultDispatcher private val computation: CoroutineDispatcher
 ) : ViewModel() {
 
@@ -88,6 +93,14 @@ class CalendarViewModel @Inject constructor(
      * already solves for every other screen.
      */
     private val selectedMonth = MutableStateFlow<YearMonth?>(null)
+
+    init {
+        // A link names the month it is about; null hands the choice back to the snapshot's
+        // date. The bar alone returns to whichever month was last paged to here.
+        viewModelScope.launch {
+            tabFocus.calendar.requests.collect { selectedMonth.value = it }
+        }
+    }
 
     val state: StateFlow<CalendarState> = combine(
         snapshotRepository.snapshot,
@@ -133,7 +146,7 @@ data class CalendarState(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarScreen(
-    onBack: () -> Unit,
+    onBack: (() -> Unit)?,
     viewModel: CalendarViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -145,8 +158,15 @@ fun CalendarScreen(
             TopAppBar(
                 title = { Text("Money calendar") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    // Null when this is a bottom-bar destination. A tab with a back arrow
+                    // invites a tap that goes somewhere the user did not come from.
+                    if (onBack != null) {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
                     }
                 }
             )
@@ -166,7 +186,8 @@ fun CalendarScreen(
         ) {
             item {
                 MonthSelector(
-                    label = DateUtil.formatMonth(state.month),
+                    month = state.month,
+                    currentMonth = YearMonth.from(state.today),
                     onPrevious = {
                         selectedDate = null
                         viewModel.previousMonth()
@@ -431,18 +452,16 @@ private fun CalendarEntryRow(entry: CalendarEntry) {
             )
             // A payment that has left the account and one that is merely due look the
             // same on a grid, and treating them alike is how somebody concludes a bill
-            // is paid when it is not.
-            if (entry.isOverdue) {
-                Spacer(Modifier.height(4.dp))
-                StatusPill(
-                    text = "Was due, still not recorded",
-                    containerColor = colors.warningContainer,
-                    contentColor = colors.onWarningContainer
-                )
-            } else if (entry.isScheduled) {
-                Spacer(Modifier.height(4.dp))
-                StatusPill(text = "Expected")
-            }
+            // is paid when it is not. The same three words are used everywhere in the
+            // app, so the vocabulary is learned once rather than per screen.
+            Spacer(Modifier.height(4.dp))
+            ConfidencePill(
+                when {
+                    entry.isOverdue -> Confidence.OVERDUE
+                    entry.isScheduled -> Confidence.UPCOMING
+                    else -> Confidence.RECORDED
+                }
+            )
         }
         MoneyText(
             money = entry.amount,

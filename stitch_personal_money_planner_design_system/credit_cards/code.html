@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Credit Cards - Statement vs Unbilled</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary-fixed-dim": "#ffb68e",
+            "surface-bright": "#f9f9ff",
+            "tertiary": "#000000",
+            "surface-container-lowest": "#ffffff",
+            "surface-container-high": "#dee8ff",
+            "tertiary-container": "#331200",
+            "on-surface-variant": "#464651",
+            "primary-fixed-dim": "#bdc2ff",
+            "on-tertiary-fixed-variant": "#763300",
+            "on-tertiary-fixed": "#331200",
+            "on-error": "#ffffff",
+            "on-secondary-fixed-variant": "#3a485b",
+            "primary": "#000000",
+            "on-tertiary": "#ffffff",
+            "on-secondary-container": "#57657a",
+            "on-tertiary-container": "#cf6721",
+            "on-secondary-fixed": "#0d1c2e",
+            "inverse-primary": "#bdc2ff",
+            "on-primary-fixed-variant": "#353e91",
+            "surface-container": "#e7eeff",
+            "on-background": "#111c2d",
+            "on-secondary": "#ffffff",
+            "inverse-on-surface": "#ecf1ff",
+            "tertiary-fixed": "#ffdbca",
+            "on-primary-fixed": "#010766",
+            "surface-container-highest": "#d8e3fb",
+            "surface-tint": "#4e56ab",
+            "surface-dim": "#cfdaf2",
+            "surface": "#f9f9ff",
+            "surface-variant": "#d8e3fb",
+            "secondary": "#515f74",
+            "primary-container": "#010766",
+            "on-primary-container": "#747cd3",
+            "error": "#ba1a1a",
+            "on-surface": "#111c2d",
+            "inverse-surface": "#263143",
+            "outline": "#767683",
+            "primary-fixed": "#e0e0ff",
+            "on-primary": "#ffffff",
+            "secondary-container": "#d5e3fc",
+            "background": "#f9f9ff",
+            "outline-variant": "#c6c5d3",
+            "secondary-fixed": "#d5e3fc",
+            "surface-container-low": "#f0f3ff",
+            "error-container": "#ffdad6",
+            "on-error-container": "#93000a",
+            "secondary-fixed-dim": "#b9c7df"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter-mobile": "0.75rem",
+            "none": "0rem",
+            "md": "0.75rem",
+            "xs": "0.25rem",
+            "base": "1rem",
+            "2xl": "2rem",
+            "lg": "1.25rem",
+            "xl": "1.5rem",
+            "sm": "0.5rem",
+            "gutter-tablet": "1rem",
+            "2xs": "0.125rem",
+            "3xl": "3rem",
+            "margin-tablet": "1.5rem",
+            "margin-mobile": "1rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Inter"],
+            "title-md": ["Inter"],
+            "body-sm": ["Inter"],
+            "display-lg-mobile": ["Inter"],
+            "headline-lg": ["Inter"],
+            "headline-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "body-lg": ["Inter"],
+            "display-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "title-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}],
+            "title-md": ["16px", {"lineHeight": "24px", "fontWeight": "600"}],
+            "body-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+            "display-lg-mobile": ["28px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+            "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+            "label-lg": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+            "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+            "display-lg": ["36px", {"lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+            "title-sm": ["14px", {"lineHeight": "20px", "fontWeight": "600"}],
+            "label-md": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+            "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      font-family: 'Inter', sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background-color: #f9f9ff;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-on-surface antialiased min-h-screen flex justify-center pb-20">
+<!-- Mobile Viewport Container (Android Shell) -->
+<div class="w-full max-w-[440px] min-h-screen bg-surface flex flex-col relative pb-10">
+<!-- Top App Bar (Header Anchor) -->
+<header class="flex justify-between items-center w-full px-base h-14 bg-surface sticky top-0 z-40">
+<div class="flex items-center gap-2">
+<button aria-label="Open Drawer or Navigation" class="flex items-center justify-center w-9 h-9 rounded-xl hover:bg-surface-container-low transition-colors duration-150">
+<span class="material-symbols-outlined text-primary text-[22px]">account_balance_wallet</span>
+</button>
+<h1 class="text-headline-sm font-headline-sm font-semibold text-primary">Credit Cards</h1>
+</div>
+<div class="flex items-center gap-1">
+<button class="px-2.5 py-1 text-label-md font-label-md text-on-surface-variant hover:bg-surface-container-low rounded-xl transition-colors duration-150 border border-outline-variant font-medium">
+          Manage Cards
+        </button>
+<button aria-label="Notifications" class="w-9 h-9 flex items-center justify-center text-on-surface-variant hover:bg-surface-container-low rounded-xl transition-colors duration-150">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 px-margin-mobile flex flex-col gap-3.5 pt-1">
+<!-- Card Selector Bar & Header -->
+<section class="bg-surface-container-lowest border border-[#E8EAF6] rounded-xl p-base">
+<div class="flex justify-between items-start">
+<div class="space-y-0.5">
+<div class="flex items-center gap-1.5">
+<span class="text-title-md font-title-md text-on-surface">HDFC Regalia Gold (••4092)</span>
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]">expand_more</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-label-sm font-label-sm text-secondary uppercase tracking-wider">Visa Platinum</span>
+<span class="text-outline-variant text-[10px]">•</span>
+<span class="text-label-sm font-label-sm text-secondary font-medium">Primary Household Card</span>
+</div>
+</div>
+<span class="px-2 py-0.5 bg-surface-container text-primary font-semibold text-[10px] rounded-lg tracking-wider border border-[#CBD5E1]">ACTIVE</span>
+</div>
+</section>
+<!-- SECTION C: TOTAL EXPOSURE & LIMIT (Bento Top Summary) -->
+<section class="bg-surface-container-lowest border border-[#E8EAF6] rounded-xl p-base">
+<div class="flex justify-between items-baseline mb-2">
+<span class="text-title-sm font-title-sm text-secondary uppercase tracking-wider">TOTAL CURRENT EXPOSURE</span>
+<span class="text-headline-md font-headline-md font-bold text-on-surface tabular-nums">₹22,700</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mb-3">
+          Rigid separation: Statement <span class="font-semibold text-on-surface tabular-nums">₹18,500</span> + Unbilled <span class="font-semibold text-on-surface tabular-nums">₹4,200</span>
+</p>
+<!-- Utilization Progress Track -->
+<div class="space-y-1.5">
+<div class="w-full bg-surface-container-highest h-2 rounded-full overflow-hidden flex">
+<!-- Statement component -->
+<div class="bg-primary-container h-full" style="width: 18.5%;"></div>
+<!-- Unbilled component -->
+<div class="bg-secondary h-full border-l border-surface-container-lowest" style="width: 4.2%;"></div>
+</div>
+<div class="flex justify-between items-center text-label-sm font-label-sm pt-0.5">
+<span class="font-medium text-secondary">22.7% limit utilized</span>
+<span class="text-on-surface-variant font-medium">Available: <span class="font-bold text-on-surface tabular-nums">₹77,300</span> / ₹1,00,000</span>
+</div>
+</div>
+</section>
+<!-- SECTION A: BANK STATEMENT (FIXED BILLED POSITION) -->
+<section class="bg-surface-container-lowest border-2 border-primary-container rounded-xl p-base">
+<div class="flex justify-between items-center mb-1">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-primary text-[18px]">receipt_long</span>
+<span class="text-title-sm font-title-sm text-secondary uppercase tracking-wider">LAST STATEMENT</span>
+</div>
+<!-- Warning status pill -->
+<div class="inline-flex items-center gap-1 px-2 py-0.5 bg-[#FEF3C7] text-[#B45309] rounded-lg text-label-sm font-label-sm font-semibold tracking-wide">
+<span>DUE IN 11 DAYS</span>
+<span class="material-symbols-outlined text-[13px]">timer</span>
+</div>
+</div>
+<!-- Statement Outstanding -->
+<div class="mt-2 mb-1">
+<span class="text-label-sm font-label-sm text-secondary block">Statement Outstanding</span>
+<span class="text-display-lg-mobile font-display-lg-mobile font-bold text-on-surface tabular-nums">₹18,500</span>
+</div>
+<div class="py-2 border-t border-b border-[#E8EAF6] my-2 text-body-sm font-body-sm text-on-surface-variant flex items-center justify-between">
+<span>Statement dated 2 Sep 2026</span>
+<span class="font-semibold text-primary">Due: 20 Sep 2026</span>
+</div>
+<!-- Action link -->
+<div class="pt-1 flex justify-between items-center">
+<button class="text-label-md font-label-md font-semibold text-primary flex items-center gap-1 hover:underline">
+<span>View Statement PDF / Breakdown</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+<span class="px-1.5 py-0.5 bg-slate-100 text-slate-800 text-[10px] font-bold rounded">REC</span>
+</div>
+</section>
+<!-- SECTION B: UNBILLED PURCHASES (ACTIVE RECORDED SPEND) -->
+<section class="bg-surface-container-lowest border border-[#E8EAF6] rounded-xl p-base">
+<div class="flex justify-between items-start mb-1">
+<div>
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-secondary text-[18px]">pending_actions</span>
+<span class="text-title-sm font-title-sm text-secondary uppercase tracking-wider">UNBILLED PURCHASES</span>
+</div>
+<span class="text-headline-sm font-headline-sm font-bold text-on-surface tabular-nums block mt-1">₹4,200</span>
+</div>
+<span class="px-2 py-0.5 bg-surface-container-low text-secondary text-[10px] font-semibold rounded border border-outline-variant">NOT INVOICED</span>
+</div>
+<p class="text-body-sm font-body-sm text-on-surface-variant mb-3">
+          6 recorded transactions since 2 Sep statement
+        </p>
+<!-- Dense Tabular Ledger List for Recent Unbilled -->
+<div class="divide-y divide-[#E8EAF6] border-t border-[#E8EAF6]">
+<!-- Item 1 -->
+<div class="py-2.5 flex justify-between items-center">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">shopping_bag</span>
+</div>
+<div>
+<span class="text-label-md font-label-md font-semibold text-on-surface block">Amazon India</span>
+<span class="text-body-sm font-body-sm text-secondary">7 Sep 2026 · E-Commerce</span>
+</div>
+</div>
+<div class="text-right">
+<span class="text-title-sm font-title-sm font-bold text-on-surface tabular-nums block">₹1,850</span>
+<span class="px-1 py-0.2 bg-slate-100 text-slate-700 text-[9px] font-bold rounded">REC</span>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="py-2.5 flex justify-between items-center">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">restaurant</span>
+</div>
+<div>
+<span class="text-label-md font-label-md font-semibold text-on-surface block">Swiggy</span>
+<span class="text-body-sm font-body-sm text-secondary">6 Sep 2026 · Food Delivery</span>
+</div>
+</div>
+<div class="text-right">
+<span class="text-title-sm font-title-sm font-bold text-on-surface tabular-nums block">₹620</span>
+<span class="px-1 py-0.2 bg-slate-100 text-slate-700 text-[9px] font-bold rounded">REC</span>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="py-2.5 flex justify-between items-center">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">local_gas_station</span>
+</div>
+<div>
+<span class="text-label-md font-label-md font-semibold text-on-surface block">Shell Fuel Station</span>
+<span class="text-body-sm font-body-sm text-secondary">4 Sep 2026 · Fuel</span>
+</div>
+</div>
+<div class="text-right">
+<span class="text-title-sm font-title-sm font-bold text-on-surface tabular-nums block">₹1,730</span>
+<span class="px-1 py-0.2 bg-slate-100 text-slate-700 text-[9px] font-bold rounded">REC</span>
+</div>
+</div>
+</div>
+<button class="w-full mt-3 py-2 text-center text-label-md font-label-md text-secondary hover:text-primary transition-colors duration-150 border-t border-[#E8EAF6] block font-medium">
+          View remaining 3 unbilled entries
+        </button>
+</section>
+</main>
+<!-- Bottom Navigation Bar (Docked 5 items) -->
+<nav aria-label="Bottom Navigation" class="fixed bottom-0 w-full max-w-[440px] z-50 flex justify-around items-center px-xs py-xs bg-surface-container-lowest border-t border-outline-variant">
+<!-- 1. Home -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 transition-colors duration-150 active:scale-95 hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined text-[22px]">home</span>
+<span class="text-label-sm font-label-sm mt-0.5">Home</span>
+</a>
+<!-- 2. Forecast -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 transition-colors duration-150 active:scale-95 hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined text-[22px]">trending_up</span>
+<span class="text-label-sm font-label-sm mt-0.5">Forecast</span>
+</a>
+<!-- 3. Calendar -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 transition-colors duration-150 active:scale-95 hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined text-[22px]">calendar_month</span>
+<span class="text-label-sm font-label-sm mt-0.5">Calendar</span>
+</a>
+<!-- 4. Reports (Active tab for Credit Cards / Ledger tracking) -->
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-fixed rounded-xl px-3 py-1 font-semibold transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-[22px]" style="font-variation-settings: 'FILL' 1;">bar_chart</span>
+<span class="text-label-sm font-label-sm mt-0.5">Reports</span>
+</a>
+<!-- 5. More -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 transition-colors duration-150 active:scale-95 hover:bg-surface-container" href="#">
+<span class="material-symbols-outlined text-[22px]">more_horiz</span>
+<span class="text-label-sm font-label-sm mt-0.5">More</span>
+</a>
+</nav>
+</div>
+</body></html>

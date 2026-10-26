@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Add Expense - Personal Money Planner</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary-fixed-dim": "#ffb68e",
+            "surface-bright": "#f9f9ff",
+            "tertiary": "#000000",
+            "surface-container-lowest": "#ffffff",
+            "surface-container-high": "#dee8ff",
+            "tertiary-container": "#331200",
+            "on-surface-variant": "#464651",
+            "primary-fixed-dim": "#bdc2ff",
+            "on-tertiary-fixed-variant": "#763300",
+            "on-tertiary-fixed": "#331200",
+            "on-error": "#ffffff",
+            "on-secondary-fixed-variant": "#3a485b",
+            "primary": "#000000",
+            "on-tertiary": "#ffffff",
+            "on-secondary-container": "#57657a",
+            "on-tertiary-container": "#cf6721",
+            "on-secondary-fixed": "#0d1c2e",
+            "inverse-primary": "#bdc2ff",
+            "on-primary-fixed-variant": "#353e91",
+            "surface-container": "#e7eeff",
+            "on-background": "#111c2d",
+            "on-secondary": "#ffffff",
+            "inverse-on-surface": "#ecf1ff",
+            "tertiary-fixed": "#ffdbca",
+            "on-primary-fixed": "#010766",
+            "surface-container-highest": "#d8e3fb",
+            "surface-tint": "#4e56ab",
+            "surface-dim": "#cfdaf2",
+            "surface": "#f9f9ff",
+            "surface-variant": "#d8e3fb",
+            "secondary": "#515f74",
+            "primary-container": "#010766",
+            "on-primary-container": "#747cd3",
+            "error": "#ba1a1a",
+            "on-surface": "#111c2d",
+            "inverse-surface": "#263143",
+            "outline": "#767683",
+            "primary-fixed": "#e0e0ff",
+            "on-primary": "#ffffff",
+            "secondary-container": "#d5e3fc",
+            "background": "#f9f9ff",
+            "outline-variant": "#c6c5d3",
+            "secondary-fixed": "#d5e3fc",
+            "surface-container-low": "#f0f3ff",
+            "error-container": "#ffdad6",
+            "on-error-container": "#93000a",
+            "secondary-fixed-dim": "#b9c7df"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter-mobile": "0.75rem",
+            "none": "0rem",
+            "md": "0.75rem",
+            "xs": "0.25rem",
+            "base": "1rem",
+            "2xl": "2rem",
+            "lg": "1.25rem",
+            "xl": "1.5rem",
+            "sm": "0.5rem",
+            "gutter-tablet": "1rem",
+            "2xs": "0.125rem",
+            "3xl": "3rem",
+            "margin-tablet": "1.5rem",
+            "margin-mobile": "1rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Inter"],
+            "title-md": ["Inter"],
+            "body-sm": ["Inter"],
+            "display-lg-mobile": ["Inter"],
+            "headline-lg": ["Inter"],
+            "headline-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "body-lg": ["Inter"],
+            "display-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "title-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "title-md": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "display-lg-mobile": ["28px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "label-lg": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+            "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "display-lg": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "title-sm": ["14px", { "lineHeight": "20px", "fontWeight": "600" }],
+            "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+            "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface antialiased min-h-screen flex justify-center selection:bg-secondary-container">
+<!-- Android Phone Viewport Container (< 600dp) -->
+<main class="w-full max-w-[440px] min-h-screen bg-background flex flex-col relative pb-32 border-x border-outline-variant/30">
+<!-- Top Bar (Modal / Task Departure style) -->
+<header class="flex justify-between items-center w-full px-base h-14 bg-surface sticky top-0 z-30">
+<button aria-label="Close" class="w-10 h-10 -ml-2 flex items-center justify-center text-on-surface hover:bg-surface-container transition-colors rounded-xl" type="button">
+<span class="material-symbols-outlined text-[24px]">close</span>
+</button>
+<h1 class="text-headline-sm font-headline-sm text-primary tracking-tight">Add Expense</h1>
+<div class="flex items-center space-x-1 -mr-2">
+<button aria-label="Scan receipt" class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-surface-container transition-colors rounded-xl" type="button">
+<span class="material-symbols-outlined text-[22px]">document_scanner</span>
+</button>
+<button aria-label="More options" class="w-10 h-10 flex items-center justify-center text-on-surface hover:bg-surface-container transition-colors rounded-xl" type="button">
+<span class="material-symbols-outlined text-[22px]">more_vert</span>
+</button>
+</div>
+</header>
+<!-- Main Content Area: Rapid Ergonomics -->
+<div class="px-margin-mobile flex flex-col space-y-5 pt-2">
+<!-- 1. Currency Display & Autofocused Input Card -->
+<section class="bg-surface-container-lowest border border-outline-variant/50 rounded-xl p-base flex flex-col items-center justify-center shadow-none focus-within:border-primary-container focus-within:ring-1 focus-within:ring-primary-container transition-all">
+<div class="w-full flex items-center justify-between mb-1">
+<span class="text-label-sm font-label-sm text-on-surface-variant tracking-wider uppercase">Amount in INR</span>
+<span class="text-label-sm font-label-sm px-1.5 py-0.5 rounded bg-surface-container-low text-on-surface border border-outline-variant/40 font-medium">REC</span>
+</div>
+<div class="flex items-baseline justify-center w-full py-1">
+<span class="text-display-lg font-display-lg text-primary mr-1 select-none font-bold">₹</span>
+<input aria-label="Expense amount" autofocus="" class="w-48 text-center text-display-lg font-display-lg text-primary border-none p-0 focus:ring-0 focus:outline-none tracking-tight font-bold bg-transparent" inputmode="numeric" type="number" value="850"/>
+</div>
+<div class="text-label-md font-label-md text-secondary mt-1 flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">bolt</span>
+<span>Fast auto-matched from SMS alert</span>
+</div>
+</section>
+<!-- 2. Category Quick-Pills (Top 4 Recent Household Categories) -->
+<section class="flex flex-col space-y-2">
+<div class="flex items-center justify-between">
+<span class="text-title-sm font-title-sm text-secondary uppercase tracking-wider">Quick Categories</span>
+<button class="text-label-sm font-label-sm text-on-secondary-container font-semibold hover:underline flex items-center" type="button">
+            All categories <span class="material-symbols-outlined text-[14px] ml-0.5">chevron_right</span>
+</button>
+</div>
+<div class="grid grid-cols-2 gap-2">
+<!-- Food & Dining (Selected) -->
+<button class="flex items-center p-3 rounded-xl bg-primary-container text-on-primary border border-primary-container shadow-sm text-left transition-all" type="button">
+<span class="material-symbols-outlined text-[20px] mr-2 text-on-primary">restaurant</span>
+<div class="flex flex-col">
+<span class="text-label-lg font-label-lg font-semibold leading-tight">Food &amp; Dining</span>
+<span class="text-label-sm font-label-sm text-primary-fixed opacity-90">Selected</span>
+</div>
+</button>
+<!-- Groceries -->
+<button class="flex items-center p-3 rounded-xl bg-surface-container-lowest text-on-surface border border-outline-variant/60 hover:bg-surface-container-low text-left transition-all" type="button">
+<span class="material-symbols-outlined text-[20px] mr-2 text-secondary">shopping_cart</span>
+<div class="flex flex-col">
+<span class="text-label-lg font-label-lg font-semibold leading-tight">Groceries</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant">Household</span>
+</div>
+</button>
+<!-- Fuel & Commute -->
+<button class="flex items-center p-3 rounded-xl bg-surface-container-lowest text-on-surface border border-outline-variant/60 hover:bg-surface-container-low text-left transition-all" type="button">
+<span class="material-symbols-outlined text-[20px] mr-2 text-secondary">local_gas_station</span>
+<div class="flex flex-col">
+<span class="text-label-lg font-label-lg font-semibold leading-tight">Fuel &amp; Commute</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant">Transport</span>
+</div>
+</button>
+<!-- Bills & Utilities -->
+<button class="flex items-center p-3 rounded-xl bg-surface-container-lowest text-on-surface border border-outline-variant/60 hover:bg-surface-container-low text-left transition-all" type="button">
+<span class="material-symbols-outlined text-[20px] mr-2 text-secondary">receipt_long</span>
+<div class="flex flex-col">
+<span class="text-label-lg font-label-lg font-semibold leading-tight">Bills &amp; Utilities</span>
+<span class="text-label-sm font-label-sm text-on-surface-variant">Recurring</span>
+</div>
+</button>
+</div>
+</section>
+<!-- 3. Smart Default Context Sheet (Date & Ledger Specs) -->
+<section class="bg-surface-container-lowest border border-outline-variant/50 rounded-xl divide-y divide-outline-variant/30">
+<!-- Date Selector -->
+<button class="w-full px-base py-3.5 flex items-center justify-between text-left hover:bg-surface-container-low transition-colors" type="button">
+<div class="flex items-center space-x-3">
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[18px]">calendar_month</span>
+</div>
+<div>
+<p class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-wider">Transaction Date</p>
+<p class="text-body-md font-body-md font-semibold text-on-surface">Today (9 Sep 2026)</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-secondary text-[20px]">expand_more</span>
+</button>
+<!-- Account (Sticky Default) -->
+<button class="w-full px-base py-3.5 flex items-center justify-between text-left hover:bg-surface-container-low transition-colors" type="button">
+<div class="flex items-center space-x-3">
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[18px]">account_balance</span>
+</div>
+<div>
+<p class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-wider">Account</p>
+<p class="text-body-md font-body-md font-semibold text-on-surface">HDFC Salary Account (••8812)</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-secondary text-[20px]">expand_more</span>
+</button>
+<!-- Payment Method -->
+<button class="w-full px-base py-3.5 flex items-center justify-between text-left hover:bg-surface-container-low transition-colors" type="button">
+<div class="flex items-center space-x-3">
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-secondary">
+<span class="material-symbols-outlined text-[18px]">qr_code_2</span>
+</div>
+<div>
+<p class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-wider">Payment Method</p>
+<p class="text-body-md font-body-md font-semibold text-on-surface">UPI (Google Pay / PhonePe)</p>
+</div>
+</div>
+<span class="material-symbols-outlined text-secondary text-[20px]">expand_more</span>
+</button>
+</section>
+<!-- 4. Optional Payee / Notes Input -->
+<section class="bg-surface-container-lowest border border-outline-variant/50 rounded-xl p-base">
+<label class="block text-label-sm font-label-sm text-on-surface-variant uppercase tracking-wider mb-2" for="expense-notes">
+          Notes &amp; Payee (Optional)
+        </label>
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-on-surface-variant text-[20px]">edit_note</span>
+<input class="w-full pl-10 pr-3 py-2.5 bg-surface text-body-md font-body-md text-on-surface border border-outline-variant/60 rounded-lg placeholder:text-outline focus:border-primary-container focus:ring-1 focus:ring-primary-container outline-none" id="expense-notes" placeholder="Dinner with team / Groceries" type="text"/>
+</div>
+</section>
+<!-- Reassurance Metadata Indicator -->
+<div class="flex items-center justify-between px-1 text-label-sm font-label-sm text-secondary">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px]">verified</span>
+          Verified Ledger Accuracy
+        </span>
+<span>EMI/Limit Impact: None</span>
+</div>
+</div>
+<!-- Sticky Bottom Action Bar (Reachable Ergonomics) -->
+<div class="fixed bottom-0 left-0 right-0 max-w-[440px] mx-auto bg-surface-container-lowest border-t border-outline-variant/40 px-margin-mobile pt-3 pb-6 flex flex-col items-center shadow-lg z-40">
+<button class="w-full h-12 bg-primary text-on-primary rounded-xl font-label-lg text-label-lg font-semibold flex items-center justify-center space-x-2 active:scale-[0.99] transition-transform hover:opacity-95 shadow-none" type="button">
+<span class="material-symbols-outlined text-[20px]">check</span>
+<span>Save Expense · ₹850</span>
+</button>
+<p class="text-label-sm font-label-sm text-on-surface-variant mt-2 text-center">
+        Will be recorded under <span class="font-semibold text-on-surface">Food &amp; Dining</span> · <span class="font-semibold text-on-surface">HDFC Bank</span>
+</p>
+</div>
+</main>
+</body></html>

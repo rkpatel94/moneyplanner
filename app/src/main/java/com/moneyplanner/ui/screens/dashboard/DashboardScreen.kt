@@ -64,6 +64,9 @@ import com.moneyplanner.ui.components.IconWash
 import com.moneyplanner.ui.components.LoadingState
 import com.moneyplanner.ui.components.MoneyText
 import com.moneyplanner.ui.components.QuickActionChip
+import com.moneyplanner.domain.calc.AttentionSummary
+import com.moneyplanner.ui.components.Confidence
+import com.moneyplanner.ui.components.ConfidencePill
 import com.moneyplanner.ui.components.SectionCard
 import com.moneyplanner.ui.components.StatusPill
 import com.moneyplanner.ui.components.SummaryRow
@@ -91,6 +94,8 @@ fun DashboardScreen(
     onOpenEmergencyFund: () -> Unit,
     onOpenCalendar: () -> Unit,
     onOpenTransactions: () -> Unit,
+    /** Every expense with no account or card, from every month, ready to be assigned. */
+    onOpenUnassigned: () -> Unit,
     onOpenAffordability: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenBudgets: () -> Unit,
@@ -111,6 +116,7 @@ fun DashboardScreen(
             onOpenEmergencyFund = onOpenEmergencyFund,
             onOpenCalendar = onOpenCalendar,
             onOpenTransactions = onOpenTransactions,
+            onOpenUnassigned = onOpenUnassigned,
             onOpenAffordability = onOpenAffordability,
             onOpenAssistant = onOpenAssistant,
             onOpenBudgets = onOpenBudgets
@@ -132,6 +138,7 @@ private fun DashboardContent(
     onOpenEmergencyFund: () -> Unit,
     onOpenCalendar: () -> Unit,
     onOpenTransactions: () -> Unit,
+    onOpenUnassigned: () -> Unit,
     onOpenAffordability: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenBudgets: () -> Unit
@@ -154,23 +161,42 @@ private fun DashboardContent(
             )
         }
 
-        state.runwayHeadline?.let { headline ->
-            item { RunwayWarningCard(headline, state, onOpenForecast) }
+        // Order is the argument this screen makes: what you have, what is wrong, what is
+        // about to leave, and only then how the month is expected to end. Anything the
+        // user cannot act on today waits below that.
+        if (!state.attention.isEmpty) {
+            item {
+                AttentionCard(
+                    summary = state.attention,
+                    onOpenUnassigned = onOpenUnassigned,
+                    onOpenCalendar = onOpenCalendar
+                )
+            }
+        }
+
+        // Held back until there is something recorded. A brand-new install has no balance
+        // yet, so it sits below the comfort floor from the first day, and the card used to
+        // warn that the balance "dips low" directly above a forecast calling the month
+        // comfortable: scolding somebody for not having started yet.
+        if (state.hasAnyData) {
+            state.runwayHeadline?.let { headline ->
+                item { RunwayWarningCard(headline, state, onOpenForecast) }
+            }
         }
 
         if (!state.hasAnyData) {
             item { GettingStartedCard(onAddExpense) }
         }
 
-        item { IncomeCard(state) }
-
-        item { SpentSavedRow(state) }
+        if (!state.comingUp.isEmpty) {
+            item { ComingUpCard(state, onOpenCalendar) }
+        }
 
         item { ForecastCard(state, onOpenForecast) }
 
-        if (state.upcoming.isNotEmpty()) {
-            item { ComingUpCard(state, onOpenCalendar) }
-        }
+        item { IncomeCard(state) }
+
+        item { SpentSavedRow(state) }
 
         if (state.receivable.isPositive || state.payable.isPositive) {
             item { PeopleCard(state, onOpenPeople) }
@@ -260,8 +286,13 @@ private fun greeting(state: DashboardState.Ready): String {
 }
 
 /**
- * The hero. One number at display size, with the actions that follow from it directly
- * underneath so the common path is a single reach.
+ * The hero, and the app's central claim.
+ *
+ * The headline is what is left after money already promised to a goal is set aside, not the
+ * bank total. Showing the total invites somebody to spend savings they had mentally
+ * committed; hiding the savings makes it look like money went missing. Both figures appear,
+ * with the spendable one at display size, because both are true and only one of them
+ * answers "can I buy this today".
  */
 @Composable
 private fun AvailableNowCard(
@@ -271,29 +302,44 @@ private fun AvailableNowCard(
     onOpenEmis: () -> Unit,
     onOpenGoals: () -> Unit
 ) {
+    val colors = MoneyTheme.colors
+    val earmarked = state.breakdown.earmarkedForGoals
+    val spendable = state.breakdown.unallocated
+
     SectionCard(contentPadding = 20.dp) {
         Text(
-            "Available now",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            if (earmarked.isPositive) "AVAILABLE TO SPEND" else "AVAILABLE NOW",
+            style = MaterialTheme.typography.labelMedium,
+            color = colors.textSecondary
         )
         Spacer(Modifier.height(4.dp))
         MoneyText(
-            money = state.availableBalance,
+            money = spendable,
             style = MaterialTheme.typography.displaySmall,
-            color = if (state.availableBalance.isNegative) {
-                MoneyTheme.colors.negative
+            color = if (spendable.isNegative) {
+                colors.negative
             } else {
                 MaterialTheme.colorScheme.primary
             }
         )
 
-        if (state.breakdown.earmarkedForGoals.isPositive) {
-            Spacer(Modifier.height(2.dp))
-            Text(
-                "${IndianFormat.format(state.breakdown.earmarkedForGoals)} of this is set aside for goals",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        // The two components, shown only when they differ from the headline. With nothing
+        // set aside the breakdown would just repeat the number above it.
+        if (earmarked.isPositive) {
+            Spacer(Modifier.height(14.dp))
+            HorizontalDivider(color = colors.borderSubtle)
+            Spacer(Modifier.height(12.dp))
+            BreakdownRow(
+                label = "Total bank and cash",
+                money = state.availableBalance,
+                dotColor = colors.textTertiary
+            )
+            Spacer(Modifier.height(8.dp))
+            BreakdownRow(
+                label = "Set aside for goals",
+                money = -earmarked,
+                dotColor = colors.negative,
+                onClick = onOpenGoals
             )
         }
 
@@ -307,6 +353,186 @@ private fun AvailableNowCard(
             QuickActionChip(Icons.Default.AccountBalance, "EMI", onOpenEmis)
             QuickActionChip(Icons.Default.Savings, "Save", onOpenGoals)
         }
+    }
+}
+
+/** Overdue rows shown in full; the rest are counted, and every one is in the total line. */
+private const val OVERDUE_ROWS = 3
+
+/**
+ * The two kinds of problem worth interrupting for.
+ *
+ * Deliberately quiet. Overdue money and unlabelled records are ordinary parts of running a
+ * household, and a screen that shouts about them stops being opened. It uses the warning
+ * surface rather than the error one, names the count so the size of the job is obvious
+ * before tapping, and every row leads somewhere the problem can actually be fixed.
+ */
+@Composable
+private fun AttentionCard(
+    summary: AttentionSummary,
+    onOpenUnassigned: () -> Unit,
+    onOpenCalendar: () -> Unit
+) {
+    val colors = MoneyTheme.colors
+
+    SectionCard(containerColor = colors.warningContainer) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Default.WarningAmber,
+                contentDescription = null,
+                tint = colors.warning,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "NEEDS ATTENTION",
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.warning,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                if (summary.actionCount == 1) "1 thing" else "${summary.actionCount} things",
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.warning
+            )
+        }
+
+        summary.overdue.take(OVERDUE_ROWS).forEach { item ->
+            Spacer(Modifier.height(12.dp))
+            AttentionRow(
+                title = item.title,
+                // The day it was really due. A late balance is shown on today's date to
+                // keep it in view, so without this it would read as due today.
+                subtitle = "Due " + DateUtil.formatDayMonth(item.dueDate) +
+                    item.subtitle.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty(),
+                money = item.amount,
+                confidence = Confidence.OVERDUE,
+                onClick = onOpenCalendar
+            )
+        }
+
+        // Every late rupee appears in a figure, even the rows cut for space, and the Next 7
+        // days total deliberately leaves late items out, so this line is their only total.
+        // Money to pay and money to receive are kept apart: one does not cancel the other.
+        if (summary.overdue.size > 1) {
+            val hidden = summary.overdue.size - OVERDUE_ROWS
+            val totals = listOfNotNull(
+                summary.overdueToPay.takeIf { it.isPositive }
+                    ?.let { IndianFormat.format(it) + " to pay" },
+                summary.overdueToReceive.takeIf { it.isPositive }
+                    ?.let { IndianFormat.format(it) + " to receive" }
+            ).joinToString(" and ")
+            Spacer(Modifier.height(8.dp))
+            Text(
+                buildString {
+                    if (hidden > 0) append("and $hidden more overdue. ")
+                    append("Late in all: ")
+                    append(totals)
+                    append(".")
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.warning
+            )
+        }
+
+        if (summary.hasUnassigned) {
+            Spacer(Modifier.height(12.dp))
+            AttentionRow(
+                title = if (summary.unassignedCount == 1) {
+                    "1 expense with no account"
+                } else {
+                    "${summary.unassignedCount} expenses with no account"
+                },
+                subtitle = "Recorded, but the app cannot say which account paid",
+                money = summary.unassignedTotal,
+                confidence = Confidence.ACCOUNT_UNKNOWN,
+                // The list of exactly those expenses, from every month, rather than this
+                // month's spending, which could not even show which ones they were.
+                onClick = onOpenUnassigned
+            )
+        }
+    }
+}
+
+@Composable
+private fun AttentionRow(
+    title: String,
+    subtitle: String,
+    money: Money,
+    confidence: Confidence,
+    onClick: () -> Unit
+) {
+    val colors = MoneyTheme.colors
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.Top
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                color = colors.textPrimary
+            )
+            Spacer(Modifier.height(3.dp))
+            ConfidencePill(confidence)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = colors.textSecondary
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        MoneyText(
+            money = money,
+            style = MaterialTheme.typography.titleLarge,
+            color = colors.textPrimary
+        )
+    }
+}
+
+/**
+ * One line of the balance breakdown: a coloured dot, what it is, and how much.
+ *
+ * The dot carries no meaning on its own; the label beside it does. It is there to tie the
+ * row to the figure above without another line of prose.
+ */
+@Composable
+private fun BreakdownRow(
+    label: String,
+    money: Money,
+    dotColor: Color,
+    onClick: (() -> Unit)? = null
+) {
+    val colors = MoneyTheme.colors
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .background(dotColor, CircleShape)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.textSecondary,
+            modifier = Modifier.weight(1f)
+        )
+        MoneyText(
+            money = money,
+            style = MaterialTheme.typography.titleMedium,
+            color = if (money.isNegative) colors.negative else colors.textPrimary,
+            showSign = money.isNegative
+        )
     }
 }
 
@@ -503,10 +729,27 @@ private fun ForecastCard(state: DashboardState.Ready, onOpenForecast: () -> Unit
 
 private data class Quad<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 
+/**
+ * What is about to leave, and how much of it.
+ *
+ * The title, the total and the rows all describe one window, so the figure can be checked
+ * against the list beneath it rather than quietly covering a different stretch of days.
+ */
 @Composable
 private fun ComingUpCard(state: DashboardState.Ready, onOpenCalendar: () -> Unit) {
+    val window = state.comingUp
+
     SectionCard(
-        title = "Coming up",
+        title = "Next ${window.days} days",
+        // The total is the point of the section. A list alone tells somebody there are
+        // things ahead; the figure tells them whether today has room in it. It names the
+        // last day it counts, because "next 7 days" leaves open whether today is one.
+        subtitle = if (window.committedOutflow.isPositive) {
+            IndianFormat.format(window.committedOutflow) + " due by " +
+                DateUtil.formatDayMonth(window.lastDay)
+        } else {
+            null
+        },
         action = { TextButton(onClick = onOpenCalendar) { Text("View all") } }
     ) {
         state.upcoming.forEachIndexed { index, item ->
@@ -517,6 +760,17 @@ private fun ComingUpCard(state: DashboardState.Ready, onOpenCalendar: () -> Unit
                 )
             }
             ForecastItemRow(item, state)
+        }
+
+        // Said rather than left to be noticed. Without it the rows look like the whole
+        // window, and a total larger than the rows add up to looks like a mistake.
+        if (state.upcomingNotShown > 0) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "and ${state.upcomingNotShown} more",
+                style = MaterialTheme.typography.bodySmall,
+                color = MoneyTheme.colors.textSecondary
+            )
         }
     }
 }
@@ -535,17 +789,38 @@ private fun ForecastItemRow(item: ForecastItem, state: DashboardState.Ready) {
         IconWash(icon = iconFor(item.kind), tint = tint)
         Spacer(Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(item.title, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    item.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                Spacer(Modifier.width(8.dp))
+                // How much the app trusts this figure, said out loud. A scheduled EMI and
+                // a guessed electricity bill are not the same kind of number, and a row
+                // that showed both the same way would be overstating one of them.
+                ConfidencePill(
+                    when {
+                        item.isOverdue -> Confidence.OVERDUE
+                        item.isEstimate -> Confidence.ESTIMATED
+                        else -> Confidence.UPCOMING
+                    }
+                )
+            }
             Text(
-                DateUtil.formatDayMonth(item.date),
+                DateUtil.relativeDayLabel(item.date, state.today) + " · " +
+                    DateUtil.formatDayMonth(item.date),
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = colors.textSecondary
             )
         }
+        Spacer(Modifier.width(8.dp))
         MoneyText(
-            money = item.amount,
+            money = if (item.isInflow) item.amount else -item.amount,
             style = MaterialTheme.typography.titleMedium,
-            color = if (item.isInflow) colors.positive else MaterialTheme.colorScheme.onSurface
+            showSign = true,
+            color = if (item.isInflow) colors.positive else colors.textPrimary
         )
     }
 }

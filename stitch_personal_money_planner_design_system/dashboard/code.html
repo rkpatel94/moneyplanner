@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Personal Money Planner - Dashboard</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary-fixed-dim": "#ffb68e",
+            "surface-bright": "#f9f9ff",
+            "tertiary": "#000000",
+            "surface-container-lowest": "#ffffff",
+            "surface-container-high": "#dee8ff",
+            "tertiary-container": "#331200",
+            "on-surface-variant": "#464651",
+            "primary-fixed-dim": "#bdc2ff",
+            "on-tertiary-fixed-variant": "#763300",
+            "on-tertiary-fixed": "#331200",
+            "on-error": "#ffffff",
+            "on-secondary-fixed-variant": "#3a485b",
+            "primary": "#000000",
+            "on-tertiary": "#ffffff",
+            "on-secondary-container": "#57657a",
+            "on-tertiary-container": "#cf6721",
+            "on-secondary-fixed": "#0d1c2e",
+            "inverse-primary": "#bdc2ff",
+            "on-primary-fixed-variant": "#353e91",
+            "surface-container": "#e7eeff",
+            "on-background": "#111c2d",
+            "on-secondary": "#ffffff",
+            "inverse-on-surface": "#ecf1ff",
+            "tertiary-fixed": "#ffdbca",
+            "on-primary-fixed": "#010766",
+            "surface-container-highest": "#d8e3fb",
+            "surface-tint": "#4e56ab",
+            "surface-dim": "#cfdaf2",
+            "surface": "#f9f9ff",
+            "surface-variant": "#d8e3fb",
+            "secondary": "#515f74",
+            "primary-container": "#010766",
+            "on-primary-container": "#747cd3",
+            "error": "#ba1a1a",
+            "on-surface": "#111c2d",
+            "inverse-surface": "#263143",
+            "outline": "#767683",
+            "primary-fixed": "#e0e0ff",
+            "on-primary": "#ffffff",
+            "secondary-container": "#d5e3fc",
+            "background": "#f9f9ff",
+            "outline-variant": "#c6c5d3",
+            "secondary-fixed": "#d5e3fc",
+            "surface-container-low": "#f0f3ff",
+            "error-container": "#ffdad6",
+            "on-error-container": "#93000a",
+            "secondary-fixed-dim": "#b9c7df"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem",
+            "card": "1.5rem"
+          },
+          "spacing": {
+            "gutter-mobile": "0.75rem",
+            "none": "0rem",
+            "md": "0.75rem",
+            "xs": "0.25rem",
+            "base": "1rem",
+            "2xl": "2rem",
+            "lg": "1.25rem",
+            "xl": "1.5rem",
+            "sm": "0.5rem",
+            "gutter-tablet": "1rem",
+            "2xs": "0.125rem",
+            "3xl": "3rem",
+            "margin-tablet": "1.5rem",
+            "margin-mobile": "1rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Inter"],
+            "title-md": ["Inter"],
+            "body-sm": ["Inter"],
+            "display-lg-mobile": ["Inter"],
+            "headline-lg": ["Inter"],
+            "headline-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "body-lg": ["Inter"],
+            "display-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "title-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "title-md": ["16px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "display-lg-mobile": ["28px", { "lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+            "headline-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+            "label-lg": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+            "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+            "display-lg": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "label-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "title-sm": ["14px", { "lineHeight": "20px", "fontWeight": "600" }],
+            "label-md": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+            "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface font-body-md antialiased min-h-screen pb-32 select-none">
+<!-- Top App Bar (Semantic Shell from Shared JSON: small, leading_icon, trailing_icon) -->
+<header class="sticky top-0 z-40 bg-surface flex justify-between items-center w-full px-base h-14">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-2xl" data-icon="account_balance_wallet">account_balance_wallet</span>
+<div>
+<h1 class="font-headline-sm text-headline-sm text-primary font-semibold tracking-tight">Personal Money Planner</h1>
+<p class="font-label-sm text-label-sm text-on-surface-variant font-normal">Today, 9 Sep 2026</p>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button aria-label="Notifications" class="w-10 h-10 flex items-center justify-center rounded-xl text-on-surface hover:bg-surface-container transition-colors duration-150">
+<span class="material-symbols-outlined text-xl" data-icon="notifications">notifications</span>
+</button>
+<button aria-label="User Profile" class="w-10 h-10 flex items-center justify-center rounded-xl text-on-surface hover:bg-surface-container transition-colors duration-150">
+<span class="material-symbols-outlined text-xl" data-icon="account_circle">account_circle</span>
+</button>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="px-base pt-sm space-y-md max-w-lg mx-auto">
+<!-- Hero Card: Available to Spend -->
+<section class="bg-surface-container-lowest border border-[#E8EAF6] rounded-card p-base">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-secondary font-semibold tracking-wider">AVAILABLE TO SPEND</span>
+<span class="bg-surface-container-low px-2 py-0.5 rounded text-on-secondary-container font-label-sm text-label-sm font-semibold border border-[#E8EAF6]">CALC</span>
+</div>
+<div class="mt-2 flex items-baseline gap-1">
+<span class="font-display-lg-mobile text-display-lg-mobile text-primary tabular-nums tracking-tight">₹ 72,500</span>
+</div>
+<div class="mt-4 pt-3 border-t border-[#E8EAF6] flex flex-col gap-2">
+<div class="flex items-center justify-between font-body-sm text-body-sm text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+<span>Total bank &amp; cash</span>
+</div>
+<span class="font-label-md text-label-md text-on-surface font-semibold tabular-nums">₹92,500</span>
+</div>
+<div class="flex items-center justify-between font-body-sm text-body-sm text-on-surface-variant">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+<span>Earmarked savings</span>
+<span class="material-symbols-outlined text-sm text-outline cursor-pointer" data-icon="info">info</span>
+</div>
+<span class="font-label-md text-label-md text-error font-semibold tabular-nums">−₹20,000</span>
+</div>
+</div>
+</section>
+<!-- Attention Required Section -->
+<section class="space-y-2">
+<div class="flex items-center justify-between px-1">
+<span class="font-title-sm text-title-sm text-error font-semibold tracking-normal flex items-center gap-1.5">
+<span class="material-symbols-outlined text-base" data-icon="warning">warning</span>
+          ATTENTION REQUIRED
+        </span>
+<span class="font-label-sm text-label-sm text-on-surface-variant font-medium">2 Actions</span>
+</div>
+<div class="bg-surface-container-lowest border border-[#E8EAF6] rounded-xl divide-y divide-[#E8EAF6] overflow-hidden">
+<!-- Item 1: Overdue Water Bill -->
+<div class="p-base flex items-center justify-between bg-error-container/20">
+<div class="flex items-start gap-3">
+<div class="w-8 h-8 rounded-lg bg-error-container text-on-error-container flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-lg" data-icon="water_drop">water_drop</span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<span class="font-title-sm text-title-sm text-on-surface">Water Bill</span>
+<span class="bg-error text-on-error px-1.5 py-0.5 rounded font-label-sm text-label-sm font-semibold tracking-wide">OVERDUE !</span>
+</div>
+<p class="font-body-sm text-body-sm text-error font-medium mt-0.5">Due 5 Sep · Pending Confirmation</p>
+</div>
+</div>
+<div class="text-right">
+<div class="font-title-md text-title-md text-error font-semibold tabular-nums">₹450</div>
+<span class="font-label-sm text-label-sm text-outline underline cursor-pointer">Resolve</span>
+</div>
+</div>
+<!-- Item 2: Unknown Transaction -->
+<div class="p-base flex items-center justify-between">
+<div class="flex items-start gap-3">
+<div class="w-8 h-8 rounded-lg bg-surface-container text-secondary flex items-center justify-center shrink-0 mt-0.5">
+<span class="material-symbols-outlined text-lg" data-icon="help">help</span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<span class="font-title-sm text-title-sm text-on-surface">Unknown transaction</span>
+<span class="bg-[#EFF6FF] text-[#1E40AF] px-1.5 py-0.5 rounded font-label-sm text-label-sm font-semibold tracking-wide border border-[#CBD5E1]">ACCOUNT UNKNOWN ?</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Tap to assign account</p>
+</div>
+</div>
+<div class="text-right">
+<div class="font-title-md text-title-md text-on-surface font-semibold tabular-nums">₹8,500</div>
+<span class="font-label-sm text-label-sm text-primary font-medium underline cursor-pointer">Assign</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Next 7 Days Section -->
+<section class="space-y-2">
+<div class="flex items-center justify-between px-1">
+<span class="font-label-md text-label-md text-secondary font-semibold tracking-wider">NEXT 7 DAYS · ₹18,400 COMMITTED BEFORE SALARY</span>
+</div>
+<div class="bg-surface-container-lowest border border-[#E8EAF6] rounded-xl divide-y divide-[#E8EAF6] overflow-hidden">
+<!-- Row 1: Rent -->
+<div class="p-base flex items-center justify-between">
+<div class="flex items-start gap-3">
+<div class="w-9 h-9 rounded-lg bg-surface-container text-secondary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg" data-icon="home">home</span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<span class="font-title-sm text-title-sm text-on-surface font-semibold">Rent</span>
+<span class="bg-[#F1F5F9] text-[#0F172A] px-1.5 py-0.5 rounded font-label-sm text-label-sm font-semibold flex items-center gap-0.5">
+                  UPCOMING <span class="material-symbols-outlined text-xs" data-icon="schedule">schedule</span>
+</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Due 10 Sep · SBI Auto-debit</p>
+</div>
+</div>
+<div class="text-right">
+<div class="font-title-md text-title-md text-primary font-bold tabular-nums">₹15,000</div>
+<span class="bg-[#EFF6FF] text-[#1E40AF] px-1 py-0.2 rounded font-label-sm text-[10px] font-semibold">REC</span>
+</div>
+</div>
+<!-- Row 2: Electricity Bill -->
+<div class="p-base flex items-center justify-between">
+<div class="flex items-start gap-3">
+<div class="w-9 h-9 rounded-lg bg-surface-container text-secondary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg" data-icon="bolt">bolt</span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<span class="font-title-sm text-title-sm text-on-surface font-semibold">Electricity Bill</span>
+<span class="bg-[#F1F5F9] text-[#0F172A] px-1.5 py-0.5 rounded font-label-sm text-label-sm font-semibold flex items-center gap-0.5">
+                  UPCOMING <span class="material-symbols-outlined text-xs" data-icon="schedule">schedule</span>
+</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Due 12 Sep · BESCOM</p>
+</div>
+</div>
+<div class="text-right">
+<div class="font-title-md text-title-md text-primary font-bold tabular-nums">₹2,200</div>
+<span class="bg-[#FEF3C7] text-[#B45309] px-1 py-0.2 rounded font-label-sm text-[10px] font-semibold">FCST</span>
+</div>
+</div>
+<!-- Row 3: Credit Card Min Due -->
+<div class="p-base flex items-center justify-between">
+<div class="flex items-start gap-3">
+<div class="w-9 h-9 rounded-lg bg-surface-container text-secondary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-lg" data-icon="credit_card">credit_card</span>
+</div>
+<div>
+<div class="flex items-center gap-1.5">
+<span class="font-title-sm text-title-sm text-on-surface font-semibold">Credit Card Min Due</span>
+<span class="bg-[#F1F5F9] text-[#0F172A] px-1.5 py-0.5 rounded font-label-sm text-label-sm font-semibold flex items-center gap-0.5">
+                  UPCOMING <span class="material-symbols-outlined text-xs" data-icon="schedule">schedule</span>
+</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Due 14 Sep · HDFC Bank</p>
+</div>
+</div>
+<div class="text-right">
+<div class="font-title-md text-title-md text-primary font-bold tabular-nums">₹1,200</div>
+<span class="bg-[#EFF6FF] text-[#1E40AF] px-1 py-0.2 rounded font-label-sm text-[10px] font-semibold">EST</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Month-End Forecast Card -->
+<section class="bg-surface-container-lowest border border-[#E8EAF6] rounded-xl p-base">
+<div class="flex items-center justify-between">
+<span class="font-label-md text-label-md text-secondary font-semibold tracking-wider">EXPECTED MONTH-END BALANCE</span>
+<div class="flex items-center gap-1 bg-[#FEF3C7] text-[#B45309] px-2 py-0.5 rounded text-label-sm font-label-sm font-semibold">
+<span>FORECAST</span>
+<span class="material-symbols-outlined text-xs" data-icon="trending_up">trending_up</span>
+</div>
+</div>
+<div class="mt-2 flex items-baseline justify-between">
+<div class="font-display-lg-mobile text-display-lg-mobile text-primary tabular-nums tracking-tight">₹ 41,300</div>
+</div>
+<div class="mt-2 pt-2 border-t border-[#E8EAF6] flex items-center gap-1.5 text-on-surface-variant">
+<span class="material-symbols-outlined text-sm" data-icon="insights">insights</span>
+<p class="font-body-sm text-body-sm">Based on 6 months history</p>
+</div>
+</section>
+</main>
+<!-- Floating Action Button (+ Add Expense) -->
+<div class="fixed bottom-20 right-base z-40">
+<button class="bg-[#000666] text-on-primary h-12 px-base rounded-xl font-label-lg text-label-lg font-semibold flex items-center gap-2 shadow-lg active:scale-95 transition-all duration-150">
+<span class="material-symbols-outlined text-xl" data-icon="add">add</span>
+<span>Add Expense</span>
+</button>
+</div>
+<!-- Bottom Navigation Bar (Semantic Shell strictly executing Shared Components JSON) -->
+<!-- json: destination_count=5, labels: ["Home", "Forecast", "Calendar", "Reports", "More"], active: "Home" -->
+<nav class="fixed bottom-0 w-full z-50 flex justify-around items-center px-xs py-xs bg-surface-container-lowest border-t border-outline-variant">
+<!-- Tab 1: Home (Active) -->
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-fixed rounded-xl px-3 py-1 font-semibold transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="home" style="font-variation-settings: 'FILL' 1;">home</span>
+<span class="font-label-sm text-label-sm">Home</span>
+</a>
+<!-- Tab 2: Forecast (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-container transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="trending_up">trending_up</span>
+<span class="font-label-sm text-label-sm">Forecast</span>
+</a>
+<!-- Tab 3: Calendar (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-container transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="calendar_month">calendar_month</span>
+<span class="font-label-sm text-label-sm">Calendar</span>
+</a>
+<!-- Tab 4: Reports (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-container transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="bar_chart">bar_chart</span>
+<span class="font-label-sm text-label-sm">Reports</span>
+</a>
+<!-- Tab 5: More (Inactive) -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-container transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-xl" data-icon="more_horiz">more_horiz</span>
+<span class="font-label-sm text-label-sm">More</span>
+</a>
+</nav>
+</body></html>

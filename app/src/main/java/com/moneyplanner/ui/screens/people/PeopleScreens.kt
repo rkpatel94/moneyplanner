@@ -316,6 +316,29 @@ fun PersonDetailScreen(
                         }
                     )
 
+                    // How the net figure was arrived at. Two lines that add up beat one
+                    // number nobody can check, and this is the screen where somebody is
+                    // most likely to be checking.
+                    state.summary?.let { summary ->
+                        val name = state.person?.name ?: "They"
+                        Spacer(Modifier.height(14.dp))
+                        HorizontalDivider(color = colors.borderSubtle)
+                        Spacer(Modifier.height(10.dp))
+
+                        if (summary.totalTheyOwedMe.isPositive) {
+                            LedgerTotalRow("You paid for $name", summary.totalTheyOwedMe)
+                        }
+                        if (summary.totalReceived.isPositive) {
+                            LedgerTotalRow("$name paid you back", summary.totalReceived)
+                        }
+                        if (summary.totalIOwedThem.isPositive) {
+                            LedgerTotalRow("$name paid for you", summary.totalIOwedThem)
+                        }
+                        if (summary.totalPaid.isPositive) {
+                            LedgerTotalRow("You paid $name back", summary.totalPaid)
+                        }
+                    }
+
                     if (state.allocation?.hasOverpayment == true) {
                         Spacer(Modifier.height(8.dp))
                         StatusPill(
@@ -990,4 +1013,34 @@ private fun shareReminder(
         putExtra(android.content.Intent.EXTRA_TEXT, message)
     }
     context.startActivity(android.content.Intent.createChooser(intent, "Send a reminder"))
+}
+
+/**
+ * One side of the running total with a person.
+ *
+ * Plain rows on purpose: this is an audit trail, and the reader is reconciling it against
+ * their own memory of who paid for what.
+ */
+@Composable
+private fun LedgerTotalRow(label: String, amount: Money) {
+    val colors = MoneyTheme.colors
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.textSecondary,
+            modifier = Modifier.weight(1f)
+        )
+        MoneyText(
+            money = amount,
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.textPrimary
+        )
+    }
 }

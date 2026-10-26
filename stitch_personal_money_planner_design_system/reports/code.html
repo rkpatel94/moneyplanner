@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Reports &amp; Analysis - Personal Money Planner</title>
+<!-- Material Symbols Outlined font -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter Font -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration verbatim -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "tertiary-fixed-dim": "#ffb68e",
+            "surface-bright": "#f9f9ff",
+            "tertiary": "#000000",
+            "surface-container-lowest": "#ffffff",
+            "surface-container-high": "#dee8ff",
+            "tertiary-container": "#331200",
+            "on-surface-variant": "#464651",
+            "primary-fixed-dim": "#bdc2ff",
+            "on-tertiary-fixed-variant": "#763300",
+            "on-tertiary-fixed": "#331200",
+            "on-error": "#ffffff",
+            "on-secondary-fixed-variant": "#3a485b",
+            "primary": "#000000",
+            "on-tertiary": "#ffffff",
+            "on-secondary-container": "#57657a",
+            "on-tertiary-container": "#cf6721",
+            "on-secondary-fixed": "#0d1c2e",
+            "inverse-primary": "#bdc2ff",
+            "on-primary-fixed-variant": "#353e91",
+            "surface-container": "#e7eeff",
+            "on-background": "#111c2d",
+            "on-secondary": "#ffffff",
+            "inverse-on-surface": "#ecf1ff",
+            "tertiary-fixed": "#ffdbca",
+            "on-primary-fixed": "#010766",
+            "surface-container-highest": "#d8e3fb",
+            "surface-tint": "#4e56ab",
+            "surface-dim": "#cfdaf2",
+            "surface": "#f9f9ff",
+            "surface-variant": "#d8e3fb",
+            "secondary": "#515f74",
+            "primary-container": "#010766",
+            "on-primary-container": "#747cd3",
+            "error": "#ba1a1a",
+            "on-surface": "#111c2d",
+            "inverse-surface": "#263143",
+            "outline": "#767683",
+            "primary-fixed": "#e0e0ff",
+            "on-primary": "#ffffff",
+            "secondary-container": "#d5e3fc",
+            "background": "#f9f9ff",
+            "outline-variant": "#c6c5d3",
+            "secondary-fixed": "#d5e3fc",
+            "surface-container-low": "#f0f3ff",
+            "error-container": "#ffdad6",
+            "on-error-container": "#93000a",
+            "secondary-fixed-dim": "#b9c7df"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "gutter-mobile": "0.75rem",
+            "none": "0rem",
+            "md": "0.75rem",
+            "xs": "0.25rem",
+            "base": "1rem",
+            "2xl": "2rem",
+            "lg": "1.25rem",
+            "xl": "1.5rem",
+            "sm": "0.5rem",
+            "gutter-tablet": "1rem",
+            "2xs": "0.125rem",
+            "3xl": "3rem",
+            "margin-tablet": "1.5rem",
+            "margin-mobile": "1rem"
+          },
+          "fontFamily": {
+            "headline-sm": ["Inter"],
+            "title-md": ["Inter"],
+            "body-sm": ["Inter"],
+            "display-lg-mobile": ["Inter"],
+            "headline-lg": ["Inter"],
+            "headline-md": ["Inter"],
+            "label-lg": ["Inter"],
+            "body-lg": ["Inter"],
+            "display-lg": ["Inter"],
+            "label-sm": ["Inter"],
+            "title-sm": ["Inter"],
+            "label-md": ["Inter"],
+            "body-md": ["Inter"]
+          },
+          "fontSize": {
+            "headline-sm": ["18px", {"lineHeight": "24px", "fontWeight": "600"}],
+            "title-md": ["16px", {"lineHeight": "24px", "fontWeight": "600"}],
+            "body-sm": ["12px", {"lineHeight": "16px", "fontWeight": "400"}],
+            "display-lg-mobile": ["28px", {"lineHeight": "36px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+            "headline-md": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+            "label-lg": ["14px", {"lineHeight": "20px", "fontWeight": "500"}],
+            "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+            "display-lg": ["36px", {"lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+            "label-sm": ["11px", {"lineHeight": "14px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+            "title-sm": ["14px", {"lineHeight": "20px", "fontWeight": "600"}],
+            "label-md": ["12px", {"lineHeight": "16px", "fontWeight": "500"}],
+            "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-surface antialiased min-h-screen pb-24 flex flex-col items-center">
+<div class="w-full max-w-md bg-surface min-h-screen flex flex-col relative shadow-sm">
+<!-- TopAppBar from Shared Components JSON -->
+<header class="bg-surface text-primary border-b border-outline-variant flex justify-between items-center w-full px-base h-14 sticky top-0 z-40">
+<div class="flex items-center space-x-sm">
+<span class="material-symbols-outlined text-primary text-[24px]">account_balance_wallet</span>
+<h1 class="text-headline-sm font-headline-sm font-semibold tracking-tight text-primary">Reports &amp; Analysis</h1>
+</div>
+<button aria-label="Notifications" class="p-xs text-on-surface-variant hover:bg-surface-container-low rounded-xl transition-colors duration-150">
+<span class="material-symbols-outlined text-[24px]">notifications</span>
+</button>
+</header>
+<!-- Main Content Container with 16dp (base) margin -->
+<main class="flex-1 px-base py-md space-y-md">
+<!-- Elapsed Time Banner -->
+<section class="bg-surface-container-lowest border border-outline-variant rounded-xl p-base">
+<div class="flex items-start justify-between">
+<div class="flex items-center space-x-xs">
+<span class="material-symbols-outlined text-secondary text-[18px]">calendar_month</span>
+<span class="text-label-md font-label-md text-secondary">Elapsed Timeline</span>
+</div>
+<span class="text-label-sm font-label-sm px-xs py-2xs rounded bg-surface-container-high text-on-secondary-fixed font-semibold tracking-wide">REC</span>
+</div>
+<div class="mt-xs">
+<p class="text-title-md font-title-md text-on-surface">September 2026 · 9 of 30 days elapsed (30% of month)</p>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-2xs">Current month is in progress. Comparisons are scaled to day 9.</p>
+</div>
+<!-- Progress mini-bar -->
+<div class="w-full bg-surface-container h-1.5 rounded-full mt-sm overflow-hidden">
+<div class="bg-primary h-full rounded-full" style="width: 30%;"></div>
+</div>
+</section>
+<!-- Proportional Comparison Bar & Metric -->
+<section class="bg-surface-container-lowest border border-outline-variant rounded-xl p-base space-y-md">
+<div class="flex justify-between items-baseline border-b border-outline-variant pb-xs">
+<span class="text-title-sm font-title-sm text-secondary">CURRENT SPEND (DAY 9)</span>
+<span class="text-label-sm font-label-sm px-xs py-2xs rounded bg-surface-container text-secondary font-medium">CALC</span>
+</div>
+<div>
+<div class="flex items-baseline space-x-xs">
+<span class="text-title-md font-title-md text-primary">₹</span>
+<span class="text-display-lg-mobile font-display-lg-mobile text-on-surface tabular-nums">14,500</span>
+</div>
+<div class="flex items-center space-x-xs mt-2xs">
+<span class="material-symbols-outlined text-error text-[16px]">arrow_upward</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant">
+              vs <span class="font-semibold text-on-surface tabular-nums">₹13,800</span> by Day 9 last month 
+              <span class="text-error font-medium tabular-nums">(+5.1% / +₹700)</span>
+</p>
+</div>
+</div>
+<!-- Visual dual-track horizontal bar -->
+<div class="space-y-sm pt-xs">
+<!-- Sep Track -->
+<div>
+<div class="flex justify-between text-label-sm font-label-sm text-on-surface mb-2xs">
+<span class="font-semibold">Day 9 Sep (Current)</span>
+<span class="tabular-nums font-semibold">₹14,500</span>
+</div>
+<div class="w-full bg-surface-container-high h-3 rounded-DEFAULT overflow-hidden">
+<div class="bg-primary h-full rounded-DEFAULT" style="width: 51.2%;"></div>
+</div>
+</div>
+<!-- Aug Track -->
+<div>
+<div class="flex justify-between text-label-sm font-label-sm text-on-surface-variant mb-2xs">
+<span>Day 9 Aug (Baseline)</span>
+<span class="tabular-nums">₹13,800</span>
+</div>
+<div class="w-full bg-surface-container-high h-3 rounded-DEFAULT overflow-hidden">
+<div class="bg-secondary h-full rounded-DEFAULT" style="width: 48.8%;"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- Category Spending Breakdown Table -->
+<section class="bg-surface-container-lowest border border-outline-variant rounded-xl p-base">
+<div class="flex justify-between items-center pb-xs border-b border-outline-variant mb-xs">
+<h2 class="text-title-sm font-title-sm text-secondary">SPENDING BREAKDOWN</h2>
+<span class="text-label-sm font-label-sm text-on-surface-variant tabular-nums">Day 1–9 Total</span>
+</div>
+<div class="divide-y divide-surface-container">
+<!-- Housing & Rent -->
+<div class="py-xs space-y-2xs">
+<div class="flex justify-between items-baseline">
+<span class="text-body-md font-body-md text-on-surface font-medium">Housing &amp; Rent</span>
+<div class="text-right tabular-nums">
+<span class="text-body-md font-body-md font-semibold text-on-surface">₹18,000</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant ml-xs">(37%)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-DEFAULT overflow-hidden">
+<div class="bg-primary h-full" style="width: 37%;"></div>
+</div>
+</div>
+<!-- Groceries & Food -->
+<div class="py-xs space-y-2xs">
+<div class="flex justify-between items-baseline">
+<span class="text-body-md font-body-md text-on-surface font-medium">Groceries &amp; Food</span>
+<div class="text-right tabular-nums">
+<span class="text-body-md font-body-md font-semibold text-on-surface">₹9,200</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant ml-xs">(19%)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-DEFAULT overflow-hidden">
+<div class="bg-primary h-full" style="width: 19%;"></div>
+</div>
+</div>
+<!-- Vehicle & Fuel -->
+<div class="py-xs space-y-2xs">
+<div class="flex justify-between items-baseline">
+<span class="text-body-md font-body-md text-on-surface font-medium">Vehicle &amp; Fuel</span>
+<div class="text-right tabular-nums">
+<span class="text-body-md font-body-md font-semibold text-on-surface">₹5,800</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant ml-xs">(12%)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-DEFAULT overflow-hidden">
+<div class="bg-primary h-full" style="width: 12%;"></div>
+</div>
+</div>
+<!-- Healthcare -->
+<div class="py-xs space-y-2xs">
+<div class="flex justify-between items-baseline">
+<span class="text-body-md font-body-md text-on-surface font-medium">Healthcare</span>
+<div class="text-right tabular-nums">
+<span class="text-body-md font-body-md font-semibold text-on-surface">₹2,400</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant ml-xs">(5%)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-DEFAULT overflow-hidden">
+<div class="bg-primary h-full" style="width: 5%;"></div>
+</div>
+</div>
+<!-- Utilities -->
+<div class="py-xs space-y-2xs">
+<div class="flex justify-between items-baseline">
+<span class="text-body-md font-body-md text-on-surface font-medium">Utilities</span>
+<div class="text-right tabular-nums">
+<span class="text-body-md font-body-md font-semibold text-on-surface">₹2,200</span>
+<span class="text-body-sm font-body-sm text-on-surface-variant ml-xs">(5%)</span>
+</div>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-DEFAULT overflow-hidden">
+<div class="bg-primary h-full" style="width: 5%;"></div>
+</div>
+</div>
+</div>
+</section>
+<!-- Recurring vs Discretionary Commitments Section -->
+<section class="bg-surface-container-lowest border border-outline-variant rounded-xl p-base space-y-sm">
+<div class="flex justify-between items-baseline border-b border-outline-variant pb-xs">
+<h2 class="text-title-sm font-title-sm text-secondary">COMMITMENT STRUCTURE</h2>
+<span class="text-label-sm font-label-sm px-xs py-2xs rounded bg-surface-container text-secondary font-medium">REC</span>
+</div>
+<div class="grid grid-cols-2 gap-sm pt-xs">
+<!-- Fixed -->
+<div class="p-sm bg-surface-container-low rounded-xl border border-outline-variant">
+<span class="text-label-sm font-label-sm text-secondary block">Fixed commitments</span>
+<div class="text-headline-sm font-headline-sm text-on-surface tabular-nums mt-2xs">₹38,200</div>
+<span class="text-label-md font-label-md text-secondary font-medium tabular-nums">72% of total</span>
+</div>
+<!-- Flexible -->
+<div class="p-sm bg-surface-container-low rounded-xl border border-outline-variant">
+<span class="text-label-sm font-label-sm text-secondary block">Flexible spending</span>
+<div class="text-headline-sm font-headline-sm text-on-surface tabular-nums mt-2xs">₹14,800</div>
+<span class="text-label-md font-label-md text-secondary font-medium tabular-nums">28% of total</span>
+</div>
+</div>
+<!-- Proportional composition stacked bar -->
+<div class="space-y-xs pt-xs">
+<div class="w-full bg-surface-container-high h-2 rounded-full flex overflow-hidden">
+<div class="bg-primary h-full" style="width: 72%;"></div>
+<div class="bg-secondary h-full" style="width: 28%;"></div>
+</div>
+<div class="flex justify-between text-label-sm font-label-sm text-on-surface-variant">
+<span class="flex items-center space-x-2xs">
+<span class="inline-block w-2 h-2 rounded-full bg-primary"></span>
+<span>Fixed (EMIs, Rent, Utilities)</span>
+</span>
+<span class="flex items-center space-x-2xs">
+<span class="inline-block w-2 h-2 rounded-full bg-secondary"></span>
+<span>Discretionary</span>
+</span>
+</div>
+</div>
+</section>
+</main>
+<!-- BottomNavBar Executed from Shared Components JSON -->
+<!-- Destination count 5: Home, Forecast, Calendar, Reports, More -->
+<!-- Reports is the active screen matching semantic requirements -->
+<nav class="fixed bottom-0 max-w-md w-full z-50 flex justify-around items-center px-xs py-xs bg-surface-container-lowest border-t border-outline-variant">
+<!-- 0: Home -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-container transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">home</span>
+<span class="text-label-sm font-label-sm">Home</span>
+</a>
+<!-- 1: Forecast -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-container transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">trending_up</span>
+<span class="text-label-sm font-label-sm">Forecast</span>
+</a>
+<!-- 2: Calendar -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-container transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">calendar_month</span>
+<span class="text-label-sm font-label-sm">Calendar</span>
+</a>
+<!-- 3: Reports (ACTIVE) -->
+<a class="flex flex-col items-center justify-center bg-secondary-container text-on-secondary-fixed rounded-xl px-3 py-1 font-semibold transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">bar_chart</span>
+<span class="text-label-sm font-label-sm">Reports</span>
+</a>
+<!-- 4: More -->
+<a class="flex flex-col items-center justify-center text-on-surface-variant px-3 py-1 hover:bg-surface-container transition-colors duration-150 active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">more_horiz</span>
+<span class="text-label-sm font-label-sm">More</span>
+</a>
+</nav>
+</div>
+</body></html>

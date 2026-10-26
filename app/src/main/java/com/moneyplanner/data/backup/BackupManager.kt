@@ -4,12 +4,14 @@ import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
 import com.moneyplanner.data.db.AppDatabase
+import com.moneyplanner.data.db.DefaultData
 import com.moneyplanner.data.db.entity.AccountEntity
 import com.moneyplanner.data.db.entity.AccountTransferEntity
 import com.moneyplanner.data.db.entity.AnnualExpenseEntity
 import com.moneyplanner.data.db.entity.AnnualExpensePaymentEntity
 import com.moneyplanner.data.db.entity.BalanceAdjustmentEntity
 import com.moneyplanner.data.db.entity.BillPaymentEntity
+import com.moneyplanner.data.db.entity.BudgetEntity
 import com.moneyplanner.data.db.entity.CategoryEntity
 import com.moneyplanner.data.db.entity.CreditCardEntity
 import com.moneyplanner.data.db.entity.CreditCardPaymentEntity
@@ -61,11 +63,37 @@ class BackupManager @Inject constructor(
 
     companion object {
         /**
-         * 2 added `linkPeriodKey` on expenses; 3 adds transfers between accounts. Older
-         * 4 adds tags and attachment metadata. Older files still restore — a missing section simply yields no rows, which is exactly
-         * what a database written before the feature existed contained.
+         * The version of the backup format this build writes.
+         *
+         * 2 added `linkPeriodKey` on expenses; 3 added transfers between accounts; 4 added
+         * tags and attachment metadata; 5 adds budgets, with their rollover and alert
+         * threshold. Older files still restore — a missing section simply yields no rows,
+         * which is exactly what a database written before the feature existed contained.
+         *
+         * Budgets are the one exception to that. They have been in the database since its
+         * second version but were never written to a backup before format 5, so a file
+         * older than that holds none even when the app it came from had several, and
+         * restoring it leaves the app with no budgets at all. The preview reports that
+         * through [BackupPreview.Readable.includesBudgets] before anything is replaced.
          */
-        const val FORMAT_VERSION = 4
+        const val FORMAT_VERSION = 5
+
+        /** The first format that carries budgets; it stays 5 as the format moves on. */
+        private const val FIRST_VERSION_WITH_BUDGETS = 5
+
+        /**
+         * Name and type of the accounts a fresh install creates, read from [DefaultData]
+         * itself so the two cannot drift. The date is irrelevant to either field.
+         */
+        private val SEEDED_ACCOUNTS: Set<Pair<String, String>> = listOf(
+            DefaultData.defaultAccount(LocalDate.ofEpochDay(0)),
+            DefaultData.defaultCashAccount(LocalDate.ofEpochDay(0))
+        ).map { it.name to it.type }.toSet()
+
+        private const val KEY_FORMAT_VERSION = "formatVersion"
+        private const val KEY_EXPORTED_ON = "exportedOn"
+        private const val KEY_APP = "app"
+
         private const val EXPORT_DIR = "exports"
 
         /** Characters a spreadsheet reads as the start of a formula. */
@@ -84,17 +112,25 @@ class BackupManager @Inject constructor(
     /**
      * The complete backup as text.
      *
-     * Split out from [exportJson] so the cloud uploader sends exactly the bytes the local
-     * backup writes. One format, one code path: a cloud copy that drifted from the file
-     * format would restore into a subtly different app.
+     * Every backup the app makes comes from here. [exportJson] writes it to the file the
+     * user shares, and the weekly automatic backup copies that same file into the folder
+     * the user chose. One format, one code path: a second writer that drifted from this
+     * one would produce files that restore into a subtly different app. Keeping it apart
+     * from the file also lets a test read the text straight back through [previewText]
+     * and [importText].
+     *
+     * Every table is read inside one transaction, so the file is a single moment of the
+     * ledger. Read one query at a time, an expense saved mid-export could have its tags
+     * written to the file without the expense itself, and restoring that file would fail on
+     * the orphaned link. The weekly backup runs unattended, so it can overlap with typing.
      */
     suspend fun buildJson(today: LocalDate): String = withContext(io) {
-        val root = JSONObject().apply {
-            put("formatVersion", FORMAT_VERSION)
-            put("exportedOn", today.toString())
-            put("app", "Personal Money Planner")
+        val root = database.withTransaction { JSONObject().apply {
+            put(KEY_FORMAT_VERSION, FORMAT_VERSION)
+            put(KEY_EXPORTED_ON, today.toString())
+            put(KEY_APP, "Personal Money Planner")
 
-            put("profile", database.profileDao().getProfile()?.let { profile ->
+            put(Section.PROFILE, database.profileDao().getProfile()?.let { profile ->
                 JSONObject().apply {
                     put("displayName", profile.displayName)
                     put("emergencyFundMonths", profile.emergencyFundMonths)
@@ -104,7 +140,7 @@ class BackupManager @Inject constructor(
                 }
             } ?: JSONObject())
 
-            put("accounts", database.profileDao().getAllAccounts().toJsonArray { account ->
+            put(Section.ACCOUNTS, database.profileDao().getAllAccounts().toJsonArray { account ->
                 JSONObject().apply {
                     put("id", account.id)
                     put("name", account.name)
@@ -116,7 +152,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("adjustments", database.profileDao().getAllAdjustments().toJsonArray { row ->
+            put(Section.ADJUSTMENTS, database.profileDao().getAllAdjustments().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("accountId", row.accountId ?: JSONObject.NULL)
@@ -127,7 +163,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("accountTransfers", database.profileDao().getAllTransfers().toJsonArray { row ->
+            put(Section.ACCOUNT_TRANSFERS, database.profileDao().getAllTransfers().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("fromAccountId", row.fromAccountId)
@@ -138,7 +174,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("categories", database.categoryDao().getAll().toJsonArray { row ->
+            put(Section.CATEGORIES, database.categoryDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -152,7 +188,23 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("people", database.peopleDao().getAll().toJsonArray { row ->
+            // Every column, rollover and threshold included. A restore clears budgets
+            // along with everything else, so a budget left out of this section is not
+            // just missing from the file: it is deleted the moment the file is restored.
+            put(Section.BUDGETS, database.budgetDao().getAll().toJsonArray { row ->
+                JSONObject().apply {
+                    put("id", row.id)
+                    put("categoryId", row.categoryId ?: JSONObject.NULL)
+                    put("amountPaise", row.amountPaise)
+                    put("isActive", row.isActive)
+                    put("notes", row.notes)
+                    put("createdAtEpochDay", row.createdAtEpochDay)
+                    put("rolloverEnabled", row.rolloverEnabled)
+                    put("alertThresholdPercent", row.alertThresholdPercent)
+                }
+            })
+
+            put(Section.PEOPLE, database.peopleDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -164,7 +216,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("familyMembers", database.familyDao().getAll().toJsonArray { row ->
+            put(Section.FAMILY_MEMBERS, database.familyDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -174,7 +226,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("vehicles", database.vehicleDao().getAll().toJsonArray { row ->
+            put(Section.VEHICLES, database.vehicleDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -186,7 +238,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("incomeSources", database.incomeDao().getAllSources().toJsonArray { row ->
+            put(Section.INCOME_SOURCES, database.incomeDao().getAllSources().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -203,7 +255,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("incomeTransactions", database.incomeDao().getAllTransactions().toJsonArray { row ->
+            put(Section.INCOME_TRANSACTIONS, database.incomeDao().getAllTransactions().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("sourceId", row.sourceId ?: JSONObject.NULL)
@@ -217,7 +269,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("expenses", database.expenseDao().getAll().toJsonArray { row ->
+            put(Section.EXPENSES, database.expenseDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("amountPaise", row.amountPaise)
@@ -238,16 +290,16 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("tags", database.expenseMetadataDao().getAllTags().toJsonArray { row ->
+            put(Section.TAGS, database.expenseMetadataDao().getAllTags().toJsonArray { row ->
                 JSONObject().apply { put("id", row.id); put("name", row.name) }
             })
-            put("expenseTags", database.expenseMetadataDao().getAllExpenseTags().toJsonArray { row ->
+            put(Section.EXPENSE_TAGS, database.expenseMetadataDao().getAllExpenseTags().toJsonArray { row ->
                 JSONObject().apply { put("expenseId", row.expenseId); put("tagId", row.tagId) }
             })
             // Attachment URIs point at documents chosen by the user. A restored URI may
             // no longer be readable on another device, but retaining its metadata is
             // more honest than silently pretending the receipt never existed.
-            put("expenseAttachments", database.expenseMetadataDao().getAllAttachments().toJsonArray { row ->
+            put(Section.EXPENSE_ATTACHMENTS, database.expenseMetadataDao().getAllAttachments().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id); put("expenseId", row.expenseId); put("uri", row.uri)
                     put("displayName", row.displayName); put("mimeType", row.mimeType)
@@ -255,7 +307,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("ledgerEntries", database.peopleDao().getAllEntries().toJsonArray { row ->
+            put(Section.LEDGER_ENTRIES, database.peopleDao().getAllEntries().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("personId", row.personId)
@@ -270,7 +322,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("settlements", database.peopleDao().getAllSettlements().toJsonArray { row ->
+            put(Section.SETTLEMENTS, database.peopleDao().getAllSettlements().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("personId", row.personId)
@@ -283,7 +335,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("sharedExpenses", database.peopleDao().getAllSharedExpenses().toJsonArray { row ->
+            put(Section.SHARED_EXPENSES, database.peopleDao().getAllSharedExpenses().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("description", row.description)
@@ -296,7 +348,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("sharedExpenseShares", database.peopleDao().getAllShares().toJsonArray { row ->
+            put(Section.SHARED_EXPENSE_SHARES, database.peopleDao().getAllShares().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("sharedExpenseId", row.sharedExpenseId)
@@ -306,7 +358,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("emis", database.emiDao().getAll().toJsonArray { row ->
+            put(Section.EMIS, database.emiDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -327,7 +379,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("emiPayments", database.emiDao().getAllPayments().toJsonArray { row ->
+            put(Section.EMI_PAYMENTS, database.emiDao().getAllPayments().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("emiId", row.emiId)
@@ -339,7 +391,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("creditCards", database.creditCardDao().getAll().toJsonArray { row ->
+            put(Section.CREDIT_CARDS, database.creditCardDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -356,7 +408,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("creditCardPayments", database.creditCardDao().getAllPayments().toJsonArray { row ->
+            put(Section.CREDIT_CARD_PAYMENTS, database.creditCardDao().getAllPayments().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("cardId", row.cardId)
@@ -367,7 +419,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("bills", database.billDao().getAll().toJsonArray { row ->
+            put(Section.BILLS, database.billDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -388,7 +440,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("billPayments", database.billDao().getAllPayments().toJsonArray { row ->
+            put(Section.BILL_PAYMENTS, database.billDao().getAllPayments().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("billId", row.billId)
@@ -400,7 +452,7 @@ class BackupManager @Inject constructor(
                 }
             })
 
-            put("annualExpenses", database.annualExpenseDao().getAll().toJsonArray { row ->
+            put(Section.ANNUAL_EXPENSES, database.annualExpenseDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -415,7 +467,7 @@ class BackupManager @Inject constructor(
             })
 
             put(
-                "annualExpensePayments",
+                Section.ANNUAL_EXPENSE_PAYMENTS,
                 database.annualExpenseDao().getAllPayments().toJsonArray { row ->
                     JSONObject().apply {
                         put("id", row.id)
@@ -428,7 +480,7 @@ class BackupManager @Inject constructor(
                 }
             )
 
-            put("savingsGoals", database.savingsDao().getAll().toJsonArray { row ->
+            put(Section.SAVINGS_GOALS, database.savingsDao().getAll().toJsonArray { row ->
                 JSONObject().apply {
                     put("id", row.id)
                     put("name", row.name)
@@ -443,7 +495,7 @@ class BackupManager @Inject constructor(
             })
 
             put(
-                "savingsContributions",
+                Section.SAVINGS_CONTRIBUTIONS,
                 database.savingsDao().getAllContributions().toJsonArray { row ->
                     JSONObject().apply {
                         put("id", row.id)
@@ -455,7 +507,7 @@ class BackupManager @Inject constructor(
                     }
                 }
             )
-        }
+        } }
 
         root.toString(2)
     }
@@ -466,13 +518,6 @@ class BackupManager @Inject constructor(
         file
     }
 
-    /**
-     * Replaces everything with the contents of a backup.
-     *
-     * The whole restore runs in one transaction, so a corrupt or truncated file leaves
-     * the existing data untouched rather than half replaced. Ids are preserved so that
-     * the relationships between records survive intact.
-     */
     /**
      * Reads a backup and reports what is in it, without changing anything.
      *
@@ -493,10 +538,10 @@ class BackupManager @Inject constructor(
     }
 
     /**
-     * The same inspection, on text that came from anywhere.
+     * The same inspection, on text already read off the device.
      *
-     * A cloud download deserves the same look-before-you-leap as a file the user picked:
-     * restoring replaces every record either way.
+     * [previewJson] reads the file the user picked and hands its text here, so every check
+     * lives in one place and can be exercised without going through a content resolver.
      */
     suspend fun previewText(text: String): BackupPreview = withContext(io) {
         val root = try {
@@ -507,7 +552,7 @@ class BackupManager @Inject constructor(
             )
         }
 
-        val version = root.optInt("formatVersion", 0)
+        val version = root.optInt(KEY_FORMAT_VERSION, 0)
         if (version <= 0) {
             return@withContext BackupPreview.Unreadable(
                 "This does not look like a Money Planner backup."
@@ -519,29 +564,54 @@ class BackupManager @Inject constructor(
             )
         }
 
-        fun count(key: String) = root.optJSONArray(key)?.length() ?: 0
+        fun count(section: String) = root.optJSONArray(section)?.length() ?: 0
+
+        // Rows a fresh install creates before the user has entered anything: the standard
+        // categories, the two empty accounts and the user's own family entry. They are
+        // structure rather than records, so they are left out of the total below. Counted,
+        // they would make a backup taken straight after installing look as though it held
+        // something, and the warning that restoring it would leave the user with nothing
+        // would never be shown. A custom category, an account opened with a balance or a
+        // second family member is something the user made, and counts.
+        fun isSeededStructure(section: String, row: JSONObject): Boolean = when (section) {
+            Section.CATEGORIES -> !row.optBoolean("isCustom")
+            // Only the two accounts a fresh install creates, as it creates them. Any other
+            // account was made by the user, and a zero opening balance is an ordinary way
+            // to make one, with the real figure entered later as a correction; treating
+            // those as seed data would call a file holding them empty.
+            Section.ACCOUNTS -> row.optLong("openingBalancePaise") == 0L &&
+                (row.optString("name") to row.optString("type")) in SEEDED_ACCOUNTS
+            Section.FAMILY_MEMBERS -> row.optBoolean("isSelf")
+            else -> false
+        }
+
+        // Every row of every section in the file, rather than a list of sections kept by
+        // hand. A hand-kept list drifted from the writer once already, counting sections
+        // under names the writer never used, so bills and ledger entries went uncounted.
+        // Reading the sections off the file means a section the writer gains is counted
+        // here without anyone having to remember. The profile is an object, not a list of
+        // records, so it is never counted.
+        var totalRecords = 0
+        root.keys().forEach { section ->
+            root.forEachObject(section) { row ->
+                if (!isSeededStructure(section, row)) totalRecords++
+            }
+        }
 
         BackupPreview.Readable(
-            exportedOn = root.optStringOrNull("exportedOn")
+            exportedOn = root.optStringOrNull(KEY_EXPORTED_ON)
                 ?.let { runCatching { LocalDate.parse(it) }.getOrNull() },
             formatVersion = version,
-            expenses = count("expenses"),
-            incomeTransactions = count("incomeTransactions"),
-            people = count("people"),
-            emis = count("emis"),
-            bills = count("recurringBills"),
-            goals = count("savingsGoals"),
-            accounts = count("accounts"),
-            // Everything countable, so a file that parses but holds nothing can be
-            // recognised as empty before it replaces records that are not.
-            totalRecords = listOf(
-                "expenses", "incomeTransactions", "incomeSources", "people",
-                "personLedgerEntries", "settlements", "sharedExpenses", "emis",
-                "emiPayments", "creditCards", "creditCardPayments", "recurringBills",
-                "billPayments", "annualExpenses", "annualExpensePayments",
-                "savingsGoals", "savingsContributions", "accounts", "accountTransfers",
-                "adjustments", "budgets"
-            ).sumOf { count(it) }
+            expenses = count(Section.EXPENSES),
+            incomeTransactions = count(Section.INCOME_TRANSACTIONS),
+            people = count(Section.PEOPLE),
+            emis = count(Section.EMIS),
+            bills = count(Section.BILLS),
+            goals = count(Section.SAVINGS_GOALS),
+            accounts = count(Section.ACCOUNTS),
+            totalRecords = totalRecords,
+            budgets = count(Section.BUDGETS),
+            includesBudgets = version >= FIRST_VERSION_WITH_BUDGETS
         )
     }
 
@@ -555,7 +625,14 @@ class BackupManager @Inject constructor(
         importText(text)
     }
 
-    /** Restores from text, whether it came off the device or out of the cloud. */
+    /**
+     * Replaces everything with the contents of a backup.
+     *
+     * The whole restore runs in one transaction, so a corrupt or truncated file leaves
+     * the existing data untouched rather than half replaced. Ids are preserved so that
+     * the relationships between records survive intact. [importJson] reads the file the
+     * user picked and hands its text here, as [previewJson] does for the preview.
+     */
     suspend fun importText(text: String): RestoreResult = withContext(io) {
         val root = try {
             JSONObject(text)
@@ -563,8 +640,13 @@ class BackupManager @Inject constructor(
             return@withContext RestoreResult.Failure("This does not look like a Money Planner backup.")
         }
 
-        val version = root.optInt("formatVersion", 0)
-        if (version <= 0 || version > FORMAT_VERSION) {
+        val version = root.optInt(KEY_FORMAT_VERSION, 0)
+        if (version <= 0) {
+            return@withContext RestoreResult.Failure(
+                "This does not look like a Money Planner backup."
+            )
+        }
+        if (version > FORMAT_VERSION) {
             return@withContext RestoreResult.Failure(
                 "This backup was made by a newer version of the app."
             )
@@ -574,7 +656,7 @@ class BackupManager @Inject constructor(
             database.withTransaction {
                 database.maintenanceDao().clearEverything()
 
-                root.optJSONObject("profile")?.takeIf { it.length() > 0 }?.let { profile ->
+                root.optJSONObject(Section.PROFILE)?.takeIf { it.length() > 0 }?.let { profile ->
                     database.profileDao().upsertProfile(
                         UserProfileEntity(
                             displayName = profile.optString("displayName"),
@@ -586,7 +668,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("accounts") { row ->
+                root.forEachObject(Section.ACCOUNTS) { row ->
                     database.profileDao().insertAccount(
                         AccountEntity(
                             id = row.getLong("id"),
@@ -600,7 +682,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("adjustments") { row ->
+                root.forEachObject(Section.ADJUSTMENTS) { row ->
                     database.profileDao().insertAdjustment(
                         BalanceAdjustmentEntity(
                             id = row.getLong("id"),
@@ -614,7 +696,7 @@ class BackupManager @Inject constructor(
                 }
 
                 // After accounts, because a transfer points at two of them.
-                root.forEachObject("accountTransfers") { row ->
+                root.forEachObject(Section.ACCOUNT_TRANSFERS) { row ->
                     database.profileDao().insertTransfer(
                         AccountTransferEntity(
                             id = row.getLong("id"),
@@ -627,7 +709,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("categories") { row ->
+                root.forEachObject(Section.CATEGORIES) { row ->
                     database.categoryDao().insert(
                         CategoryEntity(
                             id = row.getLong("id"),
@@ -643,7 +725,24 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("people") { row ->
+                // After categories, because a budget for a category points at it. A file
+                // older than format 5 has no budgets section, and so restores none.
+                root.forEachObject(Section.BUDGETS) { row ->
+                    database.budgetDao().insert(
+                        BudgetEntity(
+                            id = row.getLong("id"),
+                            categoryId = row.optLongOrNull("categoryId"),
+                            amountPaise = row.getLong("amountPaise"),
+                            isActive = row.optBoolean("isActive", true),
+                            notes = row.optString("notes"),
+                            createdAtEpochDay = row.optLong("createdAtEpochDay"),
+                            rolloverEnabled = row.optBoolean("rolloverEnabled", false),
+                            alertThresholdPercent = row.optInt("alertThresholdPercent", 80)
+                        )
+                    )
+                }
+
+                root.forEachObject(Section.PEOPLE) { row ->
                     database.peopleDao().insert(
                         PersonEntity(
                             id = row.getLong("id"),
@@ -657,7 +756,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("familyMembers") { row ->
+                root.forEachObject(Section.FAMILY_MEMBERS) { row ->
                     database.familyDao().insert(
                         FamilyMemberEntity(
                             id = row.getLong("id"),
@@ -669,7 +768,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("vehicles") { row ->
+                root.forEachObject(Section.VEHICLES) { row ->
                     database.vehicleDao().insert(
                         VehicleEntity(
                             id = row.getLong("id"),
@@ -683,7 +782,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("incomeSources") { row ->
+                root.forEachObject(Section.INCOME_SOURCES) { row ->
                     database.incomeDao().insertSource(
                         IncomeSourceEntity(
                             id = row.getLong("id"),
@@ -702,7 +801,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("incomeTransactions") { row ->
+                root.forEachObject(Section.INCOME_TRANSACTIONS) { row ->
                     database.incomeDao().insertTransaction(
                         IncomeTransactionEntity(
                             id = row.getLong("id"),
@@ -718,7 +817,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("expenses") { row ->
+                root.forEachObject(Section.EXPENSES) { row ->
                     database.expenseDao().insert(
                         ExpenseEntity(
                             id = row.getLong("id"),
@@ -744,15 +843,15 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("tags") { row ->
+                root.forEachObject(Section.TAGS) { row ->
                     database.expenseMetadataDao().insertTag(TagEntity(id = row.getLong("id"), name = row.getString("name")))
                 }
-                root.forEachObject("expenseTags") { row ->
+                root.forEachObject(Section.EXPENSE_TAGS) { row ->
                     database.expenseMetadataDao().insertExpenseTag(
                         ExpenseTagEntity(expenseId = row.getLong("expenseId"), tagId = row.getLong("tagId"))
                     )
                 }
-                root.forEachObject("expenseAttachments") { row ->
+                root.forEachObject(Section.EXPENSE_ATTACHMENTS) { row ->
                     database.expenseMetadataDao().insertAttachment(
                         ExpenseAttachmentEntity(
                             id = row.getLong("id"), expenseId = row.getLong("expenseId"), uri = row.getString("uri"),
@@ -762,7 +861,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("ledgerEntries") { row ->
+                root.forEachObject(Section.LEDGER_ENTRIES) { row ->
                     database.peopleDao().insertEntry(
                         PersonLedgerEntryEntity(
                             id = row.getLong("id"),
@@ -779,7 +878,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("settlements") { row ->
+                root.forEachObject(Section.SETTLEMENTS) { row ->
                     database.peopleDao().insertSettlement(
                         SettlementEntity(
                             id = row.getLong("id"),
@@ -794,7 +893,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("sharedExpenses") { row ->
+                root.forEachObject(Section.SHARED_EXPENSES) { row ->
                     database.peopleDao().insertSharedExpense(
                         SharedExpenseEntity(
                             id = row.getLong("id"),
@@ -810,7 +909,7 @@ class BackupManager @Inject constructor(
                 }
 
                 val shares = mutableListOf<SharedExpenseShareEntity>()
-                root.forEachObject("sharedExpenseShares") { row ->
+                root.forEachObject(Section.SHARED_EXPENSE_SHARES) { row ->
                     shares += SharedExpenseShareEntity(
                         id = row.getLong("id"),
                         sharedExpenseId = row.getLong("sharedExpenseId"),
@@ -821,7 +920,7 @@ class BackupManager @Inject constructor(
                 }
                 if (shares.isNotEmpty()) database.peopleDao().insertShares(shares)
 
-                root.forEachObject("emis") { row ->
+                root.forEachObject(Section.EMIS) { row ->
                     database.emiDao().insert(
                         EmiEntity(
                             id = row.getLong("id"),
@@ -844,7 +943,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("emiPayments") { row ->
+                root.forEachObject(Section.EMI_PAYMENTS) { row ->
                     database.emiDao().insertPayment(
                         EmiPaymentEntity(
                             id = row.getLong("id"),
@@ -858,7 +957,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("creditCards") { row ->
+                root.forEachObject(Section.CREDIT_CARDS) { row ->
                     database.creditCardDao().insert(
                         CreditCardEntity(
                             id = row.getLong("id"),
@@ -877,7 +976,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("creditCardPayments") { row ->
+                root.forEachObject(Section.CREDIT_CARD_PAYMENTS) { row ->
                     database.creditCardDao().insertPayment(
                         CreditCardPaymentEntity(
                             id = row.getLong("id"),
@@ -890,7 +989,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("bills") { row ->
+                root.forEachObject(Section.BILLS) { row ->
                     database.billDao().insert(
                         RecurringBillEntity(
                             id = row.getLong("id"),
@@ -913,7 +1012,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("billPayments") { row ->
+                root.forEachObject(Section.BILL_PAYMENTS) { row ->
                     database.billDao().insertPayment(
                         BillPaymentEntity(
                             id = row.getLong("id"),
@@ -927,7 +1026,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("annualExpenses") { row ->
+                root.forEachObject(Section.ANNUAL_EXPENSES) { row ->
                     database.annualExpenseDao().insert(
                         AnnualExpenseEntity(
                             id = row.getLong("id"),
@@ -943,7 +1042,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("annualExpensePayments") { row ->
+                root.forEachObject(Section.ANNUAL_EXPENSE_PAYMENTS) { row ->
                     database.annualExpenseDao().insertPayment(
                         AnnualExpensePaymentEntity(
                             id = row.getLong("id"),
@@ -956,7 +1055,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("savingsGoals") { row ->
+                root.forEachObject(Section.SAVINGS_GOALS) { row ->
                     database.savingsDao().insert(
                         SavingsGoalEntity(
                             id = row.getLong("id"),
@@ -972,7 +1071,7 @@ class BackupManager @Inject constructor(
                     )
                 }
 
-                root.forEachObject("savingsContributions") { row ->
+                root.forEachObject(Section.SAVINGS_CONTRIBUTIONS) { row ->
                     database.savingsDao().insertContribution(
                         SavingsContributionEntity(
                             id = row.getLong("id"),
@@ -1068,7 +1167,23 @@ sealed interface BackupPreview {
         val bills: Int,
         val goals: Int,
         val accounts: Int,
-        val totalRecords: Int
+        /**
+         * Every record in the file, across every section, leaving out the categories,
+         * accounts and family entry a fresh install creates by itself. Zero means the
+         * file holds nothing the user entered, which is what [isEmpty] reports.
+         */
+        val totalRecords: Int,
+        /** How many budgets the file holds; always 0 when [includesBudgets] is false. */
+        val budgets: Int = 0,
+        /**
+         * Whether the file's format carries budgets at all, which it does from format 5.
+         *
+         * An older file holds none, whatever the app it was taken from had, and a restore
+         * clears budgets along with everything else. Restoring one therefore leaves the
+         * app with no budgets, and false here is the cue to say so before the user
+         * confirms.
+         */
+        val includesBudgets: Boolean = false
     ) : BackupPreview {
         val isEmpty: Boolean get() = totalRecords == 0
     }
@@ -1082,6 +1197,50 @@ sealed interface RestoreResult {
 }
 
 // ---- JSON helpers ----------------------------------------------------------------
+
+/**
+ * The name of every section a backup holds.
+ *
+ * Each name is spelled once, here, and the writer, the reader and the preview all use
+ * these constants. They used to be spelled out separately in each place, and the preview
+ * drifted: it counted `recurringBills` and `personLedgerEntries`, names the writer never
+ * used, so every preview showed no bills and undercounted what the file held.
+ *
+ * The values are the file format itself. Changing one would orphan that section in every
+ * backup already written, so a value never changes; a new section gets a new name and a
+ * new [BackupManager.FORMAT_VERSION].
+ */
+private object Section {
+    const val PROFILE = "profile"
+    const val ACCOUNTS = "accounts"
+    const val ADJUSTMENTS = "adjustments"
+    const val ACCOUNT_TRANSFERS = "accountTransfers"
+    const val CATEGORIES = "categories"
+    const val BUDGETS = "budgets"
+    const val PEOPLE = "people"
+    const val FAMILY_MEMBERS = "familyMembers"
+    const val VEHICLES = "vehicles"
+    const val INCOME_SOURCES = "incomeSources"
+    const val INCOME_TRANSACTIONS = "incomeTransactions"
+    const val EXPENSES = "expenses"
+    const val TAGS = "tags"
+    const val EXPENSE_TAGS = "expenseTags"
+    const val EXPENSE_ATTACHMENTS = "expenseAttachments"
+    const val LEDGER_ENTRIES = "ledgerEntries"
+    const val SETTLEMENTS = "settlements"
+    const val SHARED_EXPENSES = "sharedExpenses"
+    const val SHARED_EXPENSE_SHARES = "sharedExpenseShares"
+    const val EMIS = "emis"
+    const val EMI_PAYMENTS = "emiPayments"
+    const val CREDIT_CARDS = "creditCards"
+    const val CREDIT_CARD_PAYMENTS = "creditCardPayments"
+    const val BILLS = "bills"
+    const val BILL_PAYMENTS = "billPayments"
+    const val ANNUAL_EXPENSES = "annualExpenses"
+    const val ANNUAL_EXPENSE_PAYMENTS = "annualExpensePayments"
+    const val SAVINGS_GOALS = "savingsGoals"
+    const val SAVINGS_CONTRIBUTIONS = "savingsContributions"
+}
 
 private inline fun <T> List<T>.toJsonArray(transform: (T) -> JSONObject): JSONArray {
     val array = JSONArray()
