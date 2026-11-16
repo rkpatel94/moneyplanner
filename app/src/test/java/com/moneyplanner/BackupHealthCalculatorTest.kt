@@ -126,4 +126,81 @@ class BackupHealthCalculatorTest {
         assertEquals(0L, health.daysSinceBackup)
         assertEquals(BackupState.RECENT, health.state)
     }
+
+    // ---- A weekly copy that has stopped ------------------------------------------------
+
+    private fun assessWithFailure(
+        lastBackup: String? = "2026-09-09",
+        configured: Boolean = true,
+        records: Int = 100,
+        failedOn: String = "2026-09-08",
+        reason: String? = "the folder is no longer available"
+    ) = BackupHealthCalculator.assess(
+        lastBackupEpochDay = lastBackup?.let { date(it).toEpochDay() },
+        autoBackupConfigured = configured,
+        recordCount = records,
+        today = today,
+        autoBackupFailedEpochDay = date(failedOn).toEpochDay(),
+        autoBackupFailureReason = reason
+    )
+
+    @Test
+    fun `a backup made by hand does not hide that the weekly copy failed`() {
+        // The manual backup today makes the records look safe, and they are, for today.
+        // The copy the user set up so they would not have to remember has still stopped.
+        val health = assessWithFailure(lastBackup = "2026-09-09")
+
+        assertEquals(BackupState.RECENT, health.state)
+        assertEquals("Backed up today", health.headline())
+        assertTrue(health.autoBackupFailing)
+        assertTrue(health.needsAttention)
+        assertFalse("a recent backup exists, so this is not an emergency", health.isSerious)
+        assertEquals(
+            "The backup to your folder on 8 Sep 2026 failed: the folder is no longer " +
+                "available. No weekly copy is being made until it works again.",
+            health.detail()
+        )
+    }
+
+    @Test
+    fun `a failure is reported even when there is little to lose yet`() {
+        // Staying quiet on a nearly empty install is about not nagging. A folder the user
+        // chose and that is not working is not a nag.
+        val health = assessWithFailure(lastBackup = null, records = 3)
+
+        assertEquals(BackupState.NOTHING_TO_LOSE, health.state)
+        assertTrue(health.needsAttention)
+        assertTrue(health.detail()!!.contains("failed"))
+    }
+
+    @Test
+    fun `a failure without a recorded reason still says when`() {
+        val health = assessWithFailure(reason = null)
+
+        assertEquals(
+            "The backup to your folder on 8 Sep 2026 failed. No weekly copy is being made " +
+                "until it works again.",
+            health.detail()
+        )
+    }
+
+    @Test
+    fun `once automatic backup is turned off, an old failure is no longer raised`() {
+        val health = assessWithFailure(configured = false)
+
+        assertFalse(health.autoBackupFailing)
+        assertFalse(health.needsAttention)
+        assertNull(health.autoBackupFailureReason)
+        // Back to the ordinary advice for someone without a folder.
+        assertTrue(health.detail()!!.contains("Choose a folder"))
+    }
+
+    @Test
+    fun `with no failure recorded nothing changes`() {
+        val health = assess(lastBackup = "2026-09-08", configured = true)
+
+        assertFalse(health.autoBackupFailing)
+        assertFalse(health.needsAttention)
+        assertNull(health.detail())
+    }
 }

@@ -14,6 +14,8 @@ import com.moneyplanner.data.repo.ExpenseRepository
 import com.moneyplanner.data.repo.TodayProvider
 import com.moneyplanner.data.repo.VehicleRepository
 import com.moneyplanner.domain.calc.RecurrenceCalculator
+import com.moneyplanner.domain.calc.AnnualPeriod
+import com.moneyplanner.domain.calc.BillPeriod
 import com.moneyplanner.domain.calc.CreditCardCalculator
 import com.moneyplanner.domain.calc.StatementCycle
 import com.moneyplanner.domain.model.AnnualExpense
@@ -38,188 +40,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
-
-// ---- Credit cards ----------------------------------------------------------------
-
-@HiltViewModel
-class CardsViewModel @Inject constructor(
-    private val cardRepository: CreditCardRepository,
-    expenseRepository: ExpenseRepository,
-    private val today: TodayProvider
-) : ViewModel() {
-
-    val state: StateFlow<CardsState> = combine(
-        cardRepository.all,
-        expenseRepository.all
-    ) { cards, expenses ->
-        val now = today.today()
-        CardsState(
-            cards = cards.map { card ->
-                CardRow(
-                    card = card,
-                    nextDueDate = RecurrenceCalculator.nextOccurrenceOnOrAfter(
-                        from = now,
-                        start = now.minusYears(5),
-                        end = null,
-                        dayOfMonth = card.dueDayOfMonth,
-                        frequency = Frequency.MONTHLY
-                    ),
-                    unbilledSpend = CreditCardCalculator.unbilledSpendOn(card, expenses),
-                    unbilledCount = CreditCardCalculator.purchasesOn(card, expenses).size,
-                    cycle = CreditCardCalculator.currentCycle(card, now),
-                    cycleSpend = CreditCardCalculator.currentCycleSpend(card, expenses, now)
-                )
-            },
-            totalOutstanding = cards.filter { it.isActive }.sumOfMoney { it.currentOutstanding },
-            totalLimit = cards.filter { it.isActive }.sumOfMoney { it.creditLimit },
-            today = now,
-            isLoading = false
-        )
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = CardsState()
-    )
-
-    private val _payAmount = MutableStateFlow("")
-    val payAmount: StateFlow<String> = _payAmount.asStateFlow()
-
-    fun updatePayAmount(value: String) {
-        _payAmount.value = value
-    }
-
-    fun payBill(card: CreditCard) {
-        val amount = Money.parseOrNull(_payAmount.value) ?: return
-        if (!amount.isPositive) return
-        viewModelScope.launch {
-            cardRepository.payBill(card, amount)
-            _payAmount.value = ""
-        }
-    }
-
-    fun payFull(card: CreditCard) {
-        viewModelScope.launch { cardRepository.payBill(card, card.currentOutstanding) }
-    }
-
-    fun delete(id: Long) {
-        viewModelScope.launch { cardRepository.delete(id) }
-    }
-}
-
-data class CardRow(
-    val card: CreditCard,
-    val nextDueDate: LocalDate?,
-    /** Charged to the card since its statement figure was last entered. */
-    val unbilledSpend: Money = Money.ZERO,
-    /** How many purchases that is, so the figure can be judged before it is opened. */
-    val unbilledCount: Int = 0,
-    /** Where the card is in its billing cycle. */
-    val cycle: StatementCycle? = null,
-    /** Charged inside the cycle that has not been billed yet. */
-    val cycleSpend: Money = Money.ZERO
-) {
-    val hasUnbilled: Boolean get() = unbilledSpend.isPositive
-
-    /** What is really owed today: the statement figure plus what has gone on since. */
-    val projectedOutstanding: Money get() = card.currentOutstanding + unbilledSpend
-}
-
-data class CardsState(
-    val cards: List<CardRow> = emptyList(),
-    val totalOutstanding: Money = Money.ZERO,
-    val totalLimit: Money = Money.ZERO,
-    val today: LocalDate = LocalDate.now(),
-    val isLoading: Boolean = true
-)
-
-@HiltViewModel
-class CardEditorViewModel @Inject constructor(
-    private val cardRepository: CreditCardRepository,
-    savedStateHandle: SavedStateHandle
-) : ViewModel() {
-
-    private val cardId: Long? = savedStateHandle.get<String>(Routes.ARG_CARD_ID)?.toLongOrNull()
-
-    private val _form = MutableStateFlow(CardForm(isEditing = cardId != null))
-    val form: StateFlow<CardForm> = _form.asStateFlow()
-
-    init {
-        if (cardId != null) {
-            viewModelScope.launch {
-                cardRepository.getById(cardId)?.let { card ->
-                    _form.value = CardForm(
-                        name = card.name,
-                        bank = card.bank,
-                        lastFour = card.lastFourDigits.orEmpty(),
-                        limitText = card.creditLimit.toEditableText(),
-                        outstandingText = card.currentOutstanding.toEditableText(),
-                        minimumDueText = card.minimumDue.toEditableText(),
-                        statementDay = card.statementDayOfMonth,
-                        dueDay = card.dueDayOfMonth,
-                        isActive = card.isActive,
-                        notes = card.notes,
-                        isEditing = true
-                    )
-                }
-            }
-        }
-    }
-
-    fun updateName(v: String) = _form.update { it.copy(name = v, nameError = null) }
-    fun updateBank(v: String) = _form.update { it.copy(bank = v) }
-    fun updateLastFour(v: String) = _form.update { it.copy(lastFour = v.filter { c -> c.isDigit() }.take(4)) }
-    fun updateLimit(v: String) = _form.update { it.copy(limitText = v) }
-    fun updateOutstanding(v: String) = _form.update { it.copy(outstandingText = v) }
-    fun updateMinimumDue(v: String) = _form.update { it.copy(minimumDueText = v) }
-    fun updateStatementDay(v: Int) = _form.update { it.copy(statementDay = v) }
-    fun updateDueDay(v: Int) = _form.update { it.copy(dueDay = v) }
-    fun updateActive(v: Boolean) = _form.update { it.copy(isActive = v) }
-    fun updateNotes(v: String) = _form.update { it.copy(notes = v) }
-
-    fun save(onSaved: () -> Unit) {
-        val current = _form.value
-        if (current.name.isBlank()) {
-            _form.update { it.copy(nameError = "Give this card a name") }
-            return
-        }
-        viewModelScope.launch {
-            val card = CreditCard(
-                id = cardId ?: 0,
-                name = current.name.trim(),
-                bank = current.bank.trim(),
-                lastFourDigits = current.lastFour.ifBlank { null },
-                creditLimit = Money.parseOrNull(current.limitText) ?: Money.ZERO,
-                currentOutstanding = Money.parseOrNull(current.outstandingText) ?: Money.ZERO,
-                minimumDue = Money.parseOrNull(current.minimumDueText) ?: Money.ZERO,
-                statementDayOfMonth = current.statementDay,
-                dueDayOfMonth = current.dueDay,
-                isActive = current.isActive,
-                notes = current.notes.trim(),
-                lastUpdated = null
-            )
-            if (cardId != null) cardRepository.update(card) else cardRepository.add(card)
-            onSaved()
-        }
-    }
-}
-
-data class CardForm(
-    val name: String = "",
-    val bank: String = "",
-    val lastFour: String = "",
-    val limitText: String = "",
-    val outstandingText: String = "",
-    val minimumDueText: String = "",
-    val statementDay: Int = 1,
-    val dueDay: Int = 15,
-    val isActive: Boolean = true,
-    val notes: String = "",
-    val nameError: String? = null,
-    val isEditing: Boolean = false
-) {
-    val canSave: Boolean get() = name.isNotBlank()
-}
 
 // ---- Recurring bills -------------------------------------------------------------
 
@@ -238,16 +60,20 @@ class BillsViewModel @Inject constructor(
         val paidKeys = payments.map { it.billId to it.periodKey }.toSet()
 
         val rows = bills.map { bill ->
-            val dueThisMonth = RecurrenceCalculator
+            val occurrences = RecurrenceCalculator
                 .occurrencesIn(month, bill.startDate, bill.endDate, bill.dueDayOfMonth, bill.frequency)
-                .firstOrNull()
+            val paid = occurrences.filter { BillPeriod.isPaid(bill, it, paidKeys) }
             BillRow(
                 bill = bill,
-                dueThisMonth = dueThisMonth,
-                isPaidThisMonth = (bill.id to month.periodKey()) in paidKeys,
+                // The next one still to pay this month; once all are paid, the last one,
+                // which is what an undo should take back.
+                dueThisMonth = occurrences.firstOrNull { it !in paid } ?: paid.lastOrNull(),
+                isPaidThisMonth = occurrences.isNotEmpty() && paid.size == occurrences.size,
                 nextDueDate = RecurrenceCalculator.nextOccurrenceOnOrAfter(
                     now, bill.startDate, bill.endDate, bill.dueDayOfMonth, bill.frequency
-                )
+                ),
+                occurrencesThisMonth = occurrences.size,
+                paidThisMonth = paid
             )
         }
 
@@ -255,11 +81,11 @@ class BillsViewModel @Inject constructor(
             active = rows.filter { it.bill.isActive },
             inactive = rows.filter { !it.bill.isActive },
             monthlyTotal = rows
-                .filter { it.bill.isActive && it.dueThisMonth != null }
-                .sumOfMoney { it.bill.amount },
+                .filter { it.bill.isActive }
+                .sumOfMoney { it.bill.amount * it.occurrencesThisMonth },
             unpaidThisMonth = rows
-                .filter { it.bill.isActive && it.dueThisMonth != null && !it.isPaidThisMonth }
-                .sumOfMoney { it.bill.amount },
+                .filter { it.bill.isActive }
+                .sumOfMoney { it.bill.amount * (it.occurrencesThisMonth - it.paidThisMonth.size) },
             month = month,
             today = now,
             isLoading = false
@@ -282,26 +108,38 @@ class BillsViewModel @Inject constructor(
      * actually billed rather than at the estimate, which is what keeps the history
      * accurate enough to improve next month's estimate.
      */
+    /** Bills with a write in flight, so a second tap waits for the first. */
+    private val busy = mutableSetOf<Long>()
+
     fun markPaid(row: BillRow) {
-        val typed = Money.parseOrNull(_paidAmounts.value[row.bill.id].orEmpty())
+        // A typed zero is a slip, not a bill paid at nothing.
+        val typed = Money.parseOrNull(_paidAmounts.value[row.bill.id].orEmpty())?.takeIf { it.isPositive }
         val amount = typed ?: row.bill.amount
-        val dueDate = row.dueThisMonth ?: row.nextDueDate ?: today.today()
+        val dueDate = row.dueThisMonth?.takeIf { it !in row.paidThisMonth }
+            ?: row.nextDueDate
+            ?: today.today()
+        if (!busy.add(row.bill.id)) return
 
         viewModelScope.launch {
-            billRepository.markPaid(
-                bill = row.bill,
-                month = YearMonth.from(dueDate),
-                amount = amount,
-                dueDate = dueDate
-            )
-            _paidAmounts.update { it - row.bill.id }
+            try {
+                billRepository.markPaid(bill = row.bill, dueDate = dueDate, amount = amount)
+                _paidAmounts.update { it - row.bill.id }
+            } finally {
+                busy.remove(row.bill.id)
+            }
         }
     }
 
+    /** Takes back the most recent payment this month: for a weekly bill, the last week paid. */
     fun undoPaid(row: BillRow) {
-        val dueDate = row.dueThisMonth ?: return
+        val dueDate = row.paidThisMonth.lastOrNull() ?: return
+        if (!busy.add(row.bill.id)) return
         viewModelScope.launch {
-            billRepository.undoPayment(row.bill.id, YearMonth.from(dueDate))
+            try {
+                billRepository.undoPayment(row.bill.id, BillPeriod.keyFor(row.bill, dueDate))
+            } finally {
+                busy.remove(row.bill.id)
+            }
         }
     }
 
@@ -314,8 +152,20 @@ data class BillRow(
     val bill: RecurringBill,
     val dueThisMonth: LocalDate?,
     val isPaidThisMonth: Boolean,
-    val nextDueDate: LocalDate?
-)
+    val nextDueDate: LocalDate?,
+    /** How many times it falls due this month: once, or four or five times when weekly. */
+    val occurrencesThisMonth: Int = if (dueThisMonth != null) 1 else 0,
+    /** The occurrences this month already paid. */
+    val paidThisMonth: List<LocalDate> = emptyList()
+) {
+    /** "2 of 5 paid" for a weekly bill part-way through the month, null otherwise. */
+    val partLabel: String?
+        get() = if (occurrencesThisMonth > 1 && paidThisMonth.isNotEmpty() && !isPaidThisMonth) {
+            "${paidThisMonth.size} of $occurrencesThisMonth paid this month"
+        } else {
+            null
+        }
+}
 
 data class BillsState(
     val active: List<BillRow> = emptyList(),
@@ -472,27 +322,22 @@ class AnnualViewModel @Inject constructor(
         annualRepository.payments
     ) { expenses, payments ->
         val now = today.today()
-        val paidThisYear = payments.filter { it.year == now.year }
-            .map { it.annualExpenseId }
-            .toSet()
+        val paidYears = payments.groupBy { it.annualExpenseId }
+            .mapValues { (_, list) -> list.map { it.year }.toSet() }
 
         val rows = expenses.map { expense ->
-            val dueThisYear = LocalDate.of(
-                now.year,
-                expense.dueMonth,
-                minOf(expense.dueDayOfMonth, YearMonth.of(now.year, expense.dueMonth).lengthOfMonth())
-            )
+            val paid = paidYears[expense.id].orEmpty()
+            // Which year's occurrence the row is about; see AnnualPeriod for why it is not
+            // simply the calendar year.
+            val (year, due) = AnnualPeriod.focusFor(expense, now)
+            val isPaid = year in paid
+
             AnnualRow(
                 expense = expense,
-                dueDate = if (dueThisYear.isBefore(now) && expense.id !in paidThisYear) {
-                    dueThisYear
-                } else if (dueThisYear.isBefore(now)) {
-                    dueThisYear.plusYears(1)
-                } else {
-                    dueThisYear
-                },
-                isPaidThisYear = expense.id in paidThisYear,
-                isOverdue = dueThisYear.isBefore(now) && expense.id !in paidThisYear
+                dueDate = due,
+                isPaidThisYear = isPaid,
+                isOverdue = !isPaid && due.isBefore(now),
+                year = year
             )
         }
 
@@ -510,17 +355,31 @@ class AnnualViewModel @Inject constructor(
         initialValue = AnnualState()
     )
 
+    private val busy = mutableSetOf<Long>()
+
+    /** Pays the occurrence the row shows, which is not always this calendar year's. */
     fun markPaid(row: AnnualRow) {
+        if (!busy.add(row.expense.id)) return
         viewModelScope.launch {
-            annualRepository.markPaid(row.expense, today.today().year, row.expense.amount)
+            try {
+                annualRepository.markPaid(row.expense, row.year, row.expense.amount)
+            } finally {
+                busy.remove(row.expense.id)
+            }
         }
     }
 
     fun undoPaid(row: AnnualRow) {
+        if (!busy.add(row.expense.id)) return
         viewModelScope.launch {
-            annualRepository.undoPayment(row.expense.id, today.today().year)
+            try {
+                annualRepository.undoPayment(row.expense.id, row.year)
+            } finally {
+                busy.remove(row.expense.id)
+            }
         }
     }
+
 
     fun delete(id: Long) {
         viewModelScope.launch { annualRepository.delete(id) }
@@ -530,8 +389,11 @@ class AnnualViewModel @Inject constructor(
 data class AnnualRow(
     val expense: AnnualExpense,
     val dueDate: LocalDate,
+    /** Whether the occurrence this row is about has been paid. */
     val isPaidThisYear: Boolean,
-    val isOverdue: Boolean
+    val isOverdue: Boolean,
+    /** Which year's occurrence the row is about, and what Mark paid and Undo act on. */
+    val year: Int = dueDate.year
 )
 
 data class AnnualState(

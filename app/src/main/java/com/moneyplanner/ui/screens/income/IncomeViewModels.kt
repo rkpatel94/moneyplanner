@@ -47,8 +47,15 @@ class IncomeViewModel @Inject constructor(
         val month = YearMonth.from(now)
 
         val rows = sources.map { source ->
+            // By the month a receipt was for, not the day it landed: a salary due on the
+            // 1st and credited on the 31st before is this month's, and judging it by its
+            // date brought "Mark received" back on the 2nd, inviting a second receipt that
+            // counted the same salary twice. Receipts from before the stamp existed fall
+            // back to their own month, as the forecast does.
+            val monthKey = month.periodKey()
             val receivedThisMonth = transactions.any {
-                it.sourceId == source.id && YearMonth.from(it.date) == month
+                it.sourceId == source.id &&
+                    (it.periodKey ?: YearMonth.from(it.date).periodKey()) == monthKey
             }
             IncomeSourceRow(
                 source = source,
@@ -82,9 +89,17 @@ class IncomeViewModel @Inject constructor(
     )
 
     /** Records that a scheduled income has arrived, at the amount that was expected. */
+    private val receiving = mutableSetOf<Long>()
+
+    /** One receipt per tap: a second tap while the first is writing does nothing. */
     fun markReceived(source: IncomeSource) {
+        if (!receiving.add(source.id)) return
         viewModelScope.launch {
-            incomeRepository.markSourceReceived(source, source.amount)
+            try {
+                incomeRepository.markSourceReceived(source, source.amount)
+            } finally {
+                receiving.remove(source.id)
+            }
         }
     }
 
@@ -199,7 +214,10 @@ class IncomeSourceEditorViewModel @Inject constructor(
                 frequency = current.frequency,
                 startDate = current.startDate,
                 endDate = current.endDate,
-                annualIncrementPercent = current.incrementText.toDoubleOrNull() ?: 0.0,
+                // A finite, ordinary percentage only: "Infinity" parses as a double, and one
+                // stored would compound every future salary past the largest possible amount.
+                annualIncrementPercent = current.incrementText.toDoubleOrNull()
+                    ?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: 0.0,
                 accountId = current.accountId,
                 isActive = current.isActive,
                 notes = current.notes.trim()
@@ -327,6 +345,9 @@ class IncomeReceiptViewModel @Inject constructor(
             _form.update { it.copy(amountError = "Enter an amount greater than zero") }
             return
         }
+        // One receipt per tap; a double tap used to record the same money twice.
+        if (savingReceipt) return
+        savingReceipt = true
         viewModelScope.launch {
             val receipt = IncomeTransaction(
                 id = receiptId ?: 0,
@@ -347,6 +368,8 @@ class IncomeReceiptViewModel @Inject constructor(
             onSaved()
         }
     }
+
+    private var savingReceipt = false
 
     private fun periodKeyFor(form: IncomeReceiptForm): String? =
         IncomeReceiptPeriod.resolve(

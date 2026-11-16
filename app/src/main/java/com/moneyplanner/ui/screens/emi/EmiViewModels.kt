@@ -144,28 +144,34 @@ class EmiDetailViewModel @Inject constructor(
         initialValue = EmiDetailState()
     )
 
+    private var paying = false
+
     /**
      * Records the next installment as paid.
      *
-     * The matching expense is filed under the EMI category when one exists, so the
-     * payment shows up in the month's spending without being mistaken for everyday
-     * spending in the forecast.
+     * The matching expense is filed under the loan's own category when it has one, and
+     * under "EMI" otherwise; the repository picks, and always writes the expense, so the
+     * installment cannot leave the forecast without leaving the balance.
      */
     fun payNextInstallment() {
         val current = state.value
         val emi = current.emi ?: return
         val installment = current.nextInstallment ?: return
-        val category = current.categories.firstOrNull { it.name.equals("EMI", ignoreCase = true) }
-            ?: current.categories.firstOrNull { it.id == emi.categoryId }
+        if (paying) return
+        paying = true
 
         viewModelScope.launch {
-            emiRepository.payInstallment(
-                emi = emi,
-                installmentNumber = installment,
-                amount = emi.emiAmount,
-                paidOn = today.today(),
-                categoryId = category?.id
-            )
+            try {
+                emiRepository.payInstallment(
+                    emi = emi,
+                    installmentNumber = installment,
+                    amount = emi.emiAmount,
+                    paidOn = today.today(),
+                    categoryId = emi.categoryId
+                )
+            } finally {
+                paying = false
+            }
         }
     }
 
@@ -292,7 +298,7 @@ class EmiEditorViewModel @Inject constructor(
     fun suggestInstallment() {
         val current = _form.value
         val principal = Money.parseOrNull(current.principalText) ?: return
-        val rate = current.interestRateText.toDoubleOrNull() ?: return
+        val rate = current.interestRateText.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..100.0 } ?: return
         val tenure = current.totalInstallmentsText.toIntOrNull() ?: return
         if (tenure <= 0) return
 
@@ -325,7 +331,10 @@ class EmiEditorViewModel @Inject constructor(
                 categoryId = current.categoryId,
                 principal = Money.parseOrNull(current.principalText) ?: Money.ZERO,
                 emiAmount = amount,
-                interestRatePercent = current.interestRateText.toDoubleOrNull(),
+                // "Infinity" and "1e999" parse as doubles. A rate is a finite, ordinary
+                // percentage, and anything else is dropped rather than stored.
+                interestRatePercent = current.interestRateText.toDoubleOrNull()
+                    ?.takeIf { it.isFinite() && it in 0.0..100.0 },
                 startDate = current.startDate,
                 firstDueDate = current.firstDueDate,
                 frequency = current.frequency,

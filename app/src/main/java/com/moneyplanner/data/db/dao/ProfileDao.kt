@@ -31,6 +31,16 @@ interface ProfileDao {
     @Query("SELECT * FROM accounts WHERE isArchived = 0 ORDER BY sortOrder, name")
     fun observeAccounts(): Flow<List<AccountEntity>>
 
+    /**
+     * Every account, closed ones included.
+     *
+     * The balance needs these. A closed account's opening balance is part of the history
+     * its transfers and expenses were written against, so leaving it out of the snapshot
+     * made the total drop by that opening balance the moment the account was closed.
+     */
+    @Query("SELECT * FROM accounts ORDER BY sortOrder, name")
+    fun observeAllAccounts(): Flow<List<AccountEntity>>
+
     @Query("SELECT * FROM accounts ORDER BY sortOrder, name")
     suspend fun getAllAccounts(): List<AccountEntity>
 

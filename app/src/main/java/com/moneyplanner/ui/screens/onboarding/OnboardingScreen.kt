@@ -66,6 +66,10 @@ fun OnboardingScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
+    // Back steps back through setup rather than closing the app and losing the answers.
+    // On the first question it is left to the system, which closes the app as usual.
+    androidx.activity.compose.BackHandler(enabled = state.step > 0) { viewModel.back() }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background

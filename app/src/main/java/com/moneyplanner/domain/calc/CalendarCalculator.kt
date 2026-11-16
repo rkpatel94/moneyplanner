@@ -80,6 +80,9 @@ object CalendarCalculator {
             .firstOrNull { it.month == month }
             ?.items
             .orEmpty()
+            // Something already recorded for a later day is shown as the record it is.
+            // Its forecast line is the same money, and listing both counted it twice.
+            .filterNot { it.isRecorded }
     }
 
     fun byDate(snapshot: FinancialSnapshot, month: YearMonth): Map<LocalDate, List<CalendarEntry>> =

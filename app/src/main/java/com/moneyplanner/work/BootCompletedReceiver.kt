@@ -24,6 +24,9 @@ import javax.inject.Inject
  * and someone who moved them to 7am should not find them at 9am again. Reading those
  * settings is a suspending call, so the broadcast is held open with goAsync until it
  * finishes rather than being fired off and abandoned.
+ *
+ * The reminder check is only put back if it is missing. Where WorkManager did keep it, it
+ * is already timed for the user's hour, and replacing it here would gain nothing.
  */
 @AndroidEntryPoint
 class BootCompletedReceiver : BroadcastReceiver() {
@@ -41,7 +44,7 @@ class BootCompletedReceiver : BroadcastReceiver() {
                 val settings = settingsStore.settings.first()
 
                 if (settings.remindersEnabled) {
-                    reminderScheduler.scheduleDailyCheck(settings.reminderHour)
+                    reminderScheduler.ensureDailyCheck(settings.reminderHour)
                 } else {
                     reminderScheduler.cancel()
                 }

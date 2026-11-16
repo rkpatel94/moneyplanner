@@ -76,372 +76,7 @@ import java.time.Month
 import java.time.format.TextStyle
 import java.util.Locale
 
-// ---- Credit cards ----------------------------------------------------------------
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CardsScreen(
-    onBack: () -> Unit,
-    onAddCard: () -> Unit,
-    onEditCard: (Long) -> Unit,
-    viewModel: CardsViewModel = hiltViewModel()
-) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
-    val payText by viewModel.payAmount.collectAsStateWithLifecycle()
-    var payingCardId by remember { mutableStateOf<Long?>(null) }
-    val colors = MoneyTheme.colors
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Credit cards") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onAddCard,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Add card") }
-            )
-        }
-    ) { padding ->
-        if (state.cards.isEmpty()) {
-            EmptyState(
-                icon = Icons.Default.CreditCard,
-                title = "No cards added",
-                message = "Add your credit cards so their dues appear in your forecast " +
-                    "and you get a reminder before the payment date.",
-                actionLabel = "Add a card",
-                onAction = onAddCard,
-                modifier = Modifier.padding(padding)
-            )
-            return@Scaffold
-        }
-
-        LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize(),
-            contentPadding = PaddingValues(20.dp, 8.dp, 20.dp, 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                SectionCard(title = "All cards") {
-                    SummaryRow("Total outstanding", state.totalOutstanding, emphasise = true)
-                    SummaryRow("Total limit", state.totalLimit)
-                }
-            }
-
-            items(state.cards, key = { "card-${it.card.id}" }) { row ->
-                val card = row.card
-                SectionCard {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(card.name, style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                buildString {
-                                    append(card.bank)
-                                    card.lastFourDigits?.let { append(" · ending $it") }
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        IconButton(onClick = { onEditCard(card.id) }) {
-                            Icon(Icons.Default.Edit, contentDescription = "Edit card")
-                        }
-                    }
-
-                    Spacer(Modifier.height(10.dp))
-
-                    // The bank's number and the app's number, in that order and never
-                    // added together silently. Paying the total when the statement is
-                    // smaller is the mistake this layout exists to prevent.
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "LAST STATEMENT",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = colors.textSecondary,
-                            modifier = Modifier.weight(1f)
-                        )
-                        row.cycle?.let { cycle ->
-                            val days = cycle.daysUntilDue(state.today)
-                            StatusPill(
-                                text = when {
-                                    days < 0L -> "Overdue"
-                                    days == 0L -> "Due today"
-                                    days == 1L -> "Due tomorrow"
-                                    else -> "Due in " + days + " days"
-                                },
-                                containerColor = if (days <= 3L) {
-                                    colors.warningContainer
-                                } else {
-                                    colors.neutralContainer
-                                },
-                                contentColor = if (days <= 3L) colors.warning else colors.neutral
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(4.dp))
-                    SummaryRow("Statement outstanding", card.currentOutstanding, emphasise = true)
-                    if (card.minimumDue.isPositive) {
-                        SummaryRow("Minimum due", card.minimumDue)
-                    }
-
-                    // Kept apart from the statement figure rather than folded into it. The
-                    // statement already contains everything charged before it was issued,
-                    // so adding these on top of that number would count them twice.
-                    if (row.hasUnbilled) {
-                        Spacer(Modifier.height(14.dp))
-                        Text(
-                            "UNBILLED SINCE THEN",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = colors.textSecondary
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        SummaryRow(
-                            if (row.unbilledCount == 1) {
-                                "1 purchase not yet billed"
-                            } else {
-                                row.unbilledCount.toString() + " purchases not yet billed"
-                            },
-                            row.unbilledSpend
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "Recorded on this card since you last entered its statement " +
-                                "figure. Your bank has not billed them yet.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = colors.textSecondary
-                        )
-
-                        Spacer(Modifier.height(12.dp))
-                        HorizontalDivider(color = colors.borderSubtle)
-                        Spacer(Modifier.height(10.dp))
-
-                        // The sum written out, because the whole point is that the reader
-                        // can see where the larger number comes from.
-                        SummaryRow("Owed on the card in total", row.projectedOutstanding, emphasise = true)
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            IndianFormat.format(card.currentOutstanding) + " statement + " +
-                                IndianFormat.format(row.unbilledSpend) + " unbilled",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = colors.textTertiary
-                        )
-                    }
-
-                    if (card.creditLimit.isPositive) {
-                        Spacer(Modifier.height(6.dp))
-                        val used = (row.projectedOutstanding.paise.toDouble() /
-                            card.creditLimit.paise).toFloat().coerceIn(0f, 1f)
-                        GoalProgressBar(
-                            fraction = used,
-                            color = if (used > 0.7f) colors.warning else MaterialTheme.colorScheme.primary,
-                            label = "${(used * 100).toInt()} percent of the limit used"
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "${IndianFormat.format(
-                                (card.creditLimit - row.projectedOutstanding).coerceAtLeastZero()
-                            )} still available",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // The cycle explains when the next bill is cut and what will be on it,
-                    // which is the difference between knowing a due date and knowing
-                    // whether today's purchase lands on this bill or the next one.
-                    row.cycle?.let { cycle ->
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "This bill closes " +
-                                DateUtil.formatDayMonth(cycle.statementOn) +
-                                ", payable by " + DateUtil.formatDayMonth(cycle.dueOn) + ".",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (row.cycleSpend.isPositive) {
-                            Text(
-                                IndianFormat.format(row.cycleSpend) +
-                                    " charged in this cycle so far.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.height(8.dp))
-                    row.nextDueDate?.let { due ->
-                        StatusPill(
-                            text = "Payment due ${DateUtil.relativeDayLabel(due, state.today).lowercase()}",
-                            containerColor = if (
-                                DateUtil.daysBetween(state.today, due) <= 3
-                            ) colors.warningContainer else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (
-                                DateUtil.daysBetween(state.today, due) <= 3
-                            ) colors.onWarningContainer else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    if (card.currentOutstanding.isPositive) {
-                        Spacer(Modifier.height(10.dp))
-                        if (payingCardId == card.id) {
-                            AmountField(
-                                value = payText,
-                                onValueChange = viewModel::updatePayAmount,
-                                label = "Amount paid",
-                                imeAction = ImeAction.Done
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                PrimaryActionButton(
-                                    text = "Record payment",
-                                    onClick = {
-                                        viewModel.payBill(card)
-                                        payingCardId = null
-                                    },
-                                    enabled = Money.parseOrNull(payText)?.isPositive == true,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                OutlinedButton(
-                                    onClick = { payingCardId = null },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("Cancel") }
-                            }
-                        } else {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(
-                                    onClick = { payingCardId = card.id },
-                                    modifier = Modifier.weight(1f)
-                                ) { Text("Pay part") }
-                                PrimaryActionButton(
-                                    text = "Pay full",
-                                    onClick = { viewModel.payFull(card) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            item {
-                Text(
-                    "Spending on a card raises its outstanding. The money leaves your " +
-                        "bank balance when you pay the card bill, which is when your " +
-                        "forecast counts it.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun CardEditorScreen(
-    onBack: () -> Unit,
-    viewModel: CardEditorViewModel = hiltViewModel()
-) {
-    val form by viewModel.form.collectAsStateWithLifecycle()
-
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (form.isEditing) "Edit card" else "Add card") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            LabelledTextField(
-                value = form.name,
-                onValueChange = viewModel::updateName,
-                label = "Card name",
-                isError = form.nameError != null,
-                errorMessage = form.nameError
-            )
-            LabelledTextField(
-                value = form.bank,
-                onValueChange = viewModel::updateBank,
-                label = "Bank"
-            )
-            LabelledTextField(
-                value = form.lastFour,
-                onValueChange = viewModel::updateLastFour,
-                label = "Last four digits (optional)",
-                keyboardType = KeyboardType.Number,
-                supportingText = "Only the last four digits are stored, never the full number"
-            )
-            AmountField(
-                value = form.limitText,
-                onValueChange = viewModel::updateLimit,
-                label = "Credit limit"
-            )
-            AmountField(
-                value = form.outstandingText,
-                onValueChange = viewModel::updateOutstanding,
-                label = "Current outstanding"
-            )
-            AmountField(
-                value = form.minimumDueText,
-                onValueChange = viewModel::updateMinimumDue,
-                label = "Minimum due"
-            )
-            DayOfMonthField(
-                day = form.statementDay,
-                onDayChange = viewModel::updateStatementDay,
-                label = "Statement date"
-            )
-            DayOfMonthField(
-                day = form.dueDay,
-                onDayChange = viewModel::updateDueDay,
-                label = "Payment due date"
-            )
-            SwitchRow(
-                label = "Card is in use",
-                checked = form.isActive,
-                onCheckedChange = viewModel::updateActive
-            )
-            LabelledTextField(
-                value = form.notes,
-                onValueChange = viewModel::updateNotes,
-                label = "Notes",
-                singleLine = false,
-                imeAction = ImeAction.Done
-            )
-            Spacer(Modifier.height(8.dp))
-            PrimaryActionButton(
-                text = if (form.isEditing) "Save changes" else "Add card",
-                onClick = { viewModel.save(onBack) },
-                enabled = form.canSave
-            )
-        }
-    }
-}
+// Credit cards live in ui/screens/cards.
 
 // ---- Recurring bills -------------------------------------------------------------
 
@@ -534,6 +169,20 @@ fun BillsScreen(
                             IconButton(onClick = { onEditBill(bill.id) }) {
                                 Icon(Icons.Default.Edit, contentDescription = "Edit bill")
                             }
+                        }
+                    }
+
+                    // A weekly bill part-way through the month: the tick pays the next week,
+                    // and the last week paid can be taken back on its own.
+                    row.partLabel?.let { label ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            StatusPill(
+                                text = label,
+                                containerColor = colors.positiveContainer,
+                                contentColor = colors.positive
+                            )
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = { viewModel.undoPaid(row) }) { Text("Undo last") }
                         }
                     }
 
@@ -890,7 +539,7 @@ fun AnnualScreen(
                     ) {
                         when {
                             row.isPaidThisYear -> StatusPill(
-                                text = "Paid for ${state.today.year}",
+                                text = "Paid for ${row.year}",
                                 containerColor = colors.positiveContainer,
                                 contentColor = colors.positive
                             )
@@ -909,6 +558,32 @@ fun AnnualScreen(
                             TextButton(onClick = { viewModel.markPaid(row) }) { Text("Mark paid") }
                         }
                     }
+                }
+            }
+
+            // Paused yearly expenses used to vanish from every screen once switched off,
+            // leaving no way back to them. Listed here, as paused bills are.
+            if (state.inactive.isNotEmpty()) {
+                item {
+                    Text(
+                        "Not active",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                items(state.inactive, key = { "inactive-${it.expense.id}" }) { row ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onEditAnnual(row.expense.id) }
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(row.expense.name, modifier = Modifier.weight(1f))
+                        MoneyText(row.expense.amount)
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         }

@@ -90,7 +90,10 @@ class DashboardViewModel @Inject constructor(
         // that should already have happened is a different kind of fact from something
         // scheduled, and running them together hides it among the ordinary.
         val overdue = allItems.filter { it.isOverdue }
+        // Expenses with no account are listed, with their actions, on the "Not linked yet"
+        // card below this one, so they are left out here rather than counted twice.
         val attention = AttentionCalculator.analyse(snapshot, overdue)
+            .copy(unassignedCount = 0, unassignedTotal = com.moneyplanner.core.money.Money.ZERO)
 
         // The mock's "next 7 days" section: what is about to leave, which is the number that
         // decides whether today is affordable. The card has room for a few rows only, but
@@ -101,9 +104,9 @@ class DashboardViewModel @Inject constructor(
             days = UpcomingCalculator.DEFAULT_DAYS
         )
 
-        val cardDue = snapshot.creditCards
-            .filter { it.isActive }
-            .sumOfMoney { it.currentOutstanding }
+        // Statement still to pay plus spending since, the same figure the cards screen and
+        // the forecast use, so the tile cannot read zero for a card that is being spent on.
+        val cardDue = BalanceCalculator.totalCreditCardOutstanding(snapshot)
 
         return DashboardState.Ready(
             today = snapshot.today,
@@ -117,13 +120,17 @@ class DashboardViewModel @Inject constructor(
             receivable = receivable,
             payable = payable,
             creditCardOutstanding = cardDue,
-            spentThisMonth = SpendingAnalyzer.totalSpendIn(snapshot, snapshot.currentMonth),
+            // Month to date, as the tiles say. Something recorded for a later day this month
+            // has not been spent or received yet; it is in the forecast, as planned.
+            spentThisMonth = SpendingAnalyzer.spendUpToDayIn(
+                snapshot, snapshot.currentMonth, snapshot.today.dayOfMonth
+            ),
             spentComparison = elapsedComparison(snapshot, snapshot.currentMonth),
             receivedThisMonth = snapshot.incomeTransactions
-                .filter { java.time.YearMonth.from(it.date) == snapshot.currentMonth }
+                .filter { java.time.YearMonth.from(it.date) == snapshot.currentMonth && !it.date.isAfter(snapshot.today) }
                 .sumOfMoney { it.amount },
             savedThisMonth = snapshot.contributions
-                .filter { java.time.YearMonth.from(it.date) == snapshot.currentMonth }
+                .filter { java.time.YearMonth.from(it.date) == snapshot.currentMonth && !it.date.isAfter(snapshot.today) }
                 .sumOfMoney { it.amount },
             emergencyFund = emergency,
             insights = insights.take(3),

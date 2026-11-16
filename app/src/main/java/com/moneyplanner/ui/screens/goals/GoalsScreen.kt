@@ -334,7 +334,12 @@ fun GoalDetailScreen(
                             )
                         }
                         MoneyText(contribution.amount, colorBySign = true, showSign = true)
-                        IconButton(onClick = { viewModel.deleteContribution(contribution.id) }) {
+                        val askDeleteContribution = com.moneyplanner.ui.components.rememberDeleteConfirmation(
+                            title = "Delete this entry?",
+                            message = "The goal's progress changes by its amount.",
+                            onConfirm = { viewModel.deleteContribution(contribution.id) }
+                        )
+                        IconButton(onClick = askDeleteContribution) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete entry")
                         }
                     }

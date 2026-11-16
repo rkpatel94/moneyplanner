@@ -97,7 +97,8 @@ class SnapshotRepository @Inject constructor(
 
     private val profileBundle = combine(
         profileRepository.profile,
-        profileRepository.accounts,
+        // Closed accounts included: their opening balances are part of the total.
+        profileRepository.allAccounts,
         profileRepository.adjustments,
         categoryRepository.everything,
         profileRepository.transfers,

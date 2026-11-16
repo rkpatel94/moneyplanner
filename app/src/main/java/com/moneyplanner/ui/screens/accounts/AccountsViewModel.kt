@@ -164,6 +164,13 @@ class AccountsViewModel @Inject constructor(
         }
     }
 
+    /** Brings a closed account back, for when it was closed by mistake or reopened. */
+    fun reopen(account: Account) {
+        viewModelScope.launch {
+            profileRepository.updateAccount(account.copy(isArchived = false))
+        }
+    }
+
     // ---- Transfers -----------------------------------------------------------------
 
     fun startTransfer() {
@@ -253,8 +260,12 @@ class AccountsViewModel @Inject constructor(
             _transferForm.update { it.copy(error = error) }
             return
         }
+        // A second tap while the first is writing would move the money twice.
+        if (savingTransfer) return
+        savingTransfer = true
 
         viewModelScope.launch {
+          try {
             val editingId = current.editingId
             if (editingId != null) {
                 profileRepository.updateTransfer(
@@ -277,8 +288,13 @@ class AccountsViewModel @Inject constructor(
                 )
             }
             _transferForm.value = TransferForm()
+          } finally {
+            savingTransfer = false
+          }
         }
     }
+
+    private var savingTransfer = false
 
     fun deleteTransfer(id: Long) {
         viewModelScope.launch { profileRepository.deleteTransfer(id) }
@@ -301,7 +317,9 @@ data class AccountsState(
     val accountNames: Map<Long, String> = emptyMap(),
     val isLoading: Boolean = true
 ) {
-    val accounts: List<Account> get() = balances?.rows.orEmpty().map { it.account }
+    /** Open accounts, which are the only ones a new transfer may name. */
+    val accounts: List<Account>
+        get() = balances?.rows.orEmpty().map { it.account }.filterNot { it.isArchived }
     val hasTwoAccounts: Boolean get() = accounts.size >= 2
 }
 

@@ -2,57 +2,193 @@ package com.moneyplanner.ui.screens.sms
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.moneyplanner.data.prefs.SettingsStore
 import com.moneyplanner.data.repo.CategoryRepository
+import com.moneyplanner.data.repo.CreditCardRepository
 import com.moneyplanner.data.repo.ExpenseRepository
 import com.moneyplanner.data.repo.IncomeRepository
+import com.moneyplanner.data.repo.ProfileRepository
 import com.moneyplanner.data.repo.TodayProvider
+import com.moneyplanner.data.sms.ImportedSmsIds
 import com.moneyplanner.data.sms.SmsCandidate
+import com.moneyplanner.data.sms.SmsInboxReader
+import com.moneyplanner.data.sms.SmsScanPeriod
+import com.moneyplanner.data.sms.SmsScanResult
+import com.moneyplanner.data.sms.SmsScanWindow
+import com.moneyplanner.data.sms.SmsSource
 import com.moneyplanner.domain.model.Category
 import com.moneyplanner.domain.model.Expense
 import com.moneyplanner.domain.model.IncomeTransaction
 import com.moneyplanner.domain.model.IncomeType
 import com.moneyplanner.domain.model.PaymentMethod
 import com.moneyplanner.domain.nlp.BankSmsParser
-import com.moneyplanner.domain.nlp.DuplicateVerdict
-import com.moneyplanner.domain.nlp.SmsDuplicateDetector
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.time.Duration
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import javax.inject.Inject
 
 /**
- * Turning bank alerts into entries, from text the user pastes in.
+ * Turning bank alerts into entries, from the SMS inbox or from text the user pastes in.
  *
- * Reading the inbox was removed rather than kept behind a permission prompt. `READ_SMS` is
- * a restricted permission that Play grants almost exclusively to default SMS handler apps,
- * so it was a distribution blocker for a feature that works without it; and an app whose
- * whole claim is that it holds your money data and can send nothing anywhere is stronger
- * for not asking to read your messages at all.
+ * Scanning reads the inbox, which needs `READ_SMS`. The permission is asked for only when
+ * the user taps Scan, and nothing here reads a message before then: opening the screen
+ * reads only when the last scan happened. Anyone who declines keeps pasting, which needs
+ * no permission and feeds the same review list. Play treats SMS access as restricted, so
+ * distributing this build there needs a permissions declaration; sideloading does not.
  *
- * Pasting costs a copy and a tap and gives the user exactly the control the review list was
- * always there to provide. Several messages can be pasted at once, separated by blank
- * lines, which is how a batch actually arrives when someone catches up on a week.
+ * Several messages can be pasted at once, separated by blank lines, which is how a batch
+ * actually arrives when someone catches up on a week.
  *
  * Nothing imports without being seen. Anything that looks like something already recorded
  * arrives unticked and says why: a missed import is visibly absent and gets fixed, while a
- * duplicate is invisible and quietly makes every balance downstream wrong.
+ * duplicate is invisible and quietly makes every balance downstream wrong. The review list
+ * is one batch however it was filled, so a message pasted and then scanned, or scanned
+ * twice, is offered once.
  */
 @HiltViewModel
 class SmsImportViewModel @Inject constructor(
+    private val smsInboxReader: SmsInboxReader,
+    private val settingsStore: SettingsStore,
     private val expenseRepository: ExpenseRepository,
     private val incomeRepository: IncomeRepository,
     private val categoryRepository: CategoryRepository,
+    private val profileRepository: ProfileRepository,
+    private val creditCardRepository: CreditCardRepository,
     private val today: TodayProvider
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SmsImportState())
     val state: StateFlow<SmsImportState> = _state.asStateFlow()
 
-    private var nextId = 1L
+    /**
+     * Held while the list is being added to or imported from. A scan landing in the middle
+     * of an import would otherwise check its messages against records from before the
+     * import, and offer again the very rows that were just saved.
+     */
+    private val reviewLock = Mutex()
+
+    /** Pasted messages count down from -1, so their ids can never meet a real inbox id. */
+    private var nextPastedId = -1L
+
+    init {
+        // Only the time of the last scan is read here. The inbox is never touched until
+        // the user asks for a scan.
+        viewModelScope.launch {
+            settingsStore.settings
+                .map { it.lastSmsScanEpochMillis }
+                .distinctUntilChanged()
+                .collect { millis ->
+                    _state.update { it.copy(lastScanAt = millis?.let(Instant::ofEpochMilli)) }
+                }
+        }
+    }
+
+    fun selectPeriod(period: SmsScanPeriod) = _state.update { it.copy(period = period) }
+
+    /**
+     * The user turned the permission down.
+     *
+     * @param canAskAgain false once the system will no longer show the request, which is
+     *        when the only way left is the app's page in system settings.
+     */
+    fun onPermissionDenied(canAskAgain: Boolean) = _state.update {
+        it.copy(isScanning = false, permissionDenied = true, canAskPermissionAgain = canAskAgain)
+    }
+
+    /** Reads the inbox for the chosen period. Only ever called once the permission is held. */
+    fun scan() {
+        if (_state.value.isScanning) return
+        _state.update {
+            it.copy(isScanning = true, scanError = null, scanSummary = null, permissionDenied = false)
+        }
+
+        viewModelScope.launch {
+            try {
+                val startedAt = Instant.now()
+                val period = _state.value.period
+                val lastScan = settingsStore.settings.first().lastSmsScanEpochMillis
+                    ?.let(Instant::ofEpochMilli)
+                val since = SmsScanWindow.startFor(period, lastScan, startedAt)
+
+                when (val result = smsInboxReader.readSince(since)) {
+                    SmsScanResult.PermissionMissing -> _state.update {
+                        it.copy(permissionDenied = true, canAskPermissionAgain = true)
+                    }
+                    is SmsScanResult.Failed -> _state.update {
+                        it.copy(
+                            scanError = "Your messages could not be read. ${result.reason} " +
+                                "You can still paste a message below."
+                        )
+                    }
+                    is SmsScanResult.Scanned -> {
+                        // The start of this scan, not its end, so a message arriving while
+                        // it ran is still ahead of the next one.
+                        settingsStore.recordSmsScan(startedAt.toEpochMilli())
+                        val outcome = addToReview(result.candidates)
+                        _state.update {
+                            it.copy(
+                                hasScanned = true,
+                                scanSummary = scanSummary(result, outcome, period, since)
+                            )
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.update {
+                    it.copy(scanError = "The scan stopped part way. You can try again, or paste a message below.")
+                }
+            } finally {
+                _state.update { it.copy(isScanning = false) }
+            }
+        }
+    }
+
+    private fun scanSummary(
+        result: SmsScanResult.Scanned,
+        outcome: SmsReviewBuilder.Result,
+        period: SmsScanPeriod,
+        since: Instant
+    ): String {
+        val window = when (period.days) {
+            null -> "since ${SCAN_TIME.format(since.atZone(ZoneId.systemDefault()))}"
+            else -> "from the last ${period.days} days"
+        }
+        val found = result.candidates.size
+        return when {
+            result.messagesInspected == 0 -> "No messages arrived $window."
+            result.messagesFromBanks == 0 ->
+                "Read ${count(result.messagesInspected, "message")} $window. None came from a bank."
+            found == 0 ->
+                "Read ${count(result.messagesFromBanks, "bank message")} $window. " +
+                    "None of them was a payment or a credit."
+            else -> buildString {
+                append("Found ${count(found, "transaction")} in ")
+                append("${count(result.messagesFromBanks, "bank message")} $window.")
+                if (outcome.repeats > 0) append(" ${outcome.repeats} already in the list below.")
+                if (outcome.alreadyImported > 0) {
+                    append(" ${outcome.alreadyImported} imported before, left unticked.")
+                }
+            }
+        }
+    }
 
     /**
      * Parses everything in the pasted text.
@@ -72,14 +208,10 @@ class SmsImportViewModel @Inject constructor(
                 return@launch
             }
 
-            val categories = categoryRepository.expenseCategories.first()
-            val existing = expenseRepository.all.first()
             val now = today.today()
-
-            val accepted = mutableListOf<SmsImportRow>()
-            val seen = mutableListOf<Pair<com.moneyplanner.core.money.Money, java.time.LocalDate>>()
             var rejected = 0
             var lastReason: String? = null
+            val candidates = mutableListOf<SmsCandidate>()
 
             blocks.forEach { block ->
                 val parsed = BankSmsParser.parse(block, now)
@@ -88,43 +220,27 @@ class SmsImportViewModel @Inject constructor(
                     lastReason = parsed.ignoredReason
                     return@forEach
                 }
-
-                val amount = parsed.amount ?: return@forEach
-                val date = parsed.date ?: now
-
-                val verdict = SmsDuplicateDetector.check(
-                    amount = amount,
-                    date = date,
-                    merchant = parsed.merchant,
-                    existing = existing,
-                    earlierInBatch = seen
-                )
-                seen += amount to date
-
-                val candidate = SmsCandidate(
-                    smsId = nextId++,
-                    sender = "Pasted",
+                candidates += SmsCandidate(
+                    smsId = nextPastedId--,
+                    sender = PASTED_SENDER,
                     receivedOn = now,
-                    parsed = parsed
-                )
-                accepted += SmsImportRow(
-                    candidate = candidate,
-                    suggestedCategoryId = suggestCategory(candidate, categories),
-                    duplicate = verdict,
-                    // Only something with no sign of being a duplicate is ready to go.
-                    isSelected = !verdict.isDuplicate
+                    parsed = parsed,
+                    source = SmsSource.PASTED
                 )
             }
 
+            val outcome = addToReview(candidates)
+
             _state.update { current ->
                 current.copy(
-                    rows = current.rows + accepted,
-                    categories = categories,
                     hasParsed = true,
-                    lastAccepted = accepted.size,
+                    lastAccepted = outcome.added,
                     lastRejected = rejected,
                     pastedError = when {
-                        accepted.isNotEmpty() -> null
+                        outcome.added > 0 -> null
+                        outcome.repeats > 0 && rejected == 0 ->
+                            if (outcome.repeats == 1) "That message is already in the list."
+                            else "Those messages are already in the list."
                         rejected == 1 -> lastReason
                             ?: "That does not look like a transaction alert."
                         else -> "None of those looked like transaction alerts."
@@ -134,40 +250,36 @@ class SmsImportViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Matches the message against the user's own categories first, then against everyday
-     * words, so somebody who renamed a category keeps their own naming.
-     */
-    private fun suggestCategory(candidate: SmsCandidate, categories: List<Category>): Long? {
-        val haystack = listOfNotNull(
-            candidate.parsed.merchant,
-            candidate.parsed.originalText
-        ).joinToString(" ").lowercase()
-
-        categories.firstOrNull { haystack.contains(it.name.lowercase()) }?.let { return it.id }
-
-        val hints = mapOf(
-            "food" to listOf("swiggy", "zomato", "restaurant", "cafe", "hotel", "eatery"),
-            "grocery" to listOf("bigbasket", "dmart", "blinkit", "zepto", "grocer", "kirana"),
-            "travel" to listOf("uber", "ola", "irctc", "rapido", "metro", "indigo"),
-            "fuel" to listOf("petrol", "fuel", "hpcl", "iocl", "bpcl", "shell"),
-            "shopping" to listOf("amazon", "flipkart", "myntra", "ajio", "meesho"),
-            "utilities" to listOf("electricity", "recharge", "broadband", "airtel", "jio")
-        )
-        hints.forEach { (categoryName, words) ->
-            if (words.any { haystack.contains(it) }) {
-                categories.firstOrNull { it.name.equals(categoryName, ignoreCase = true) }
-                    ?.let { return it.id }
+    private suspend fun addToReview(candidates: List<SmsCandidate>): SmsReviewBuilder.Result =
+        reviewLock.withLock {
+            val context = loadReviewContext()
+            var outcome = SmsReviewBuilder.Result(_state.value.rows, 0, 0, 0)
+            // Built inside the update, so a tick or a category picked while the records
+            // were loading is part of the list the new rows join rather than overwritten.
+            _state.update { current ->
+                outcome = SmsReviewBuilder.add(current.rows, candidates, context)
+                current.copy(rows = outcome.rows, categories = context.categories)
             }
+            outcome
         }
-        return null
-    }
+
+    private suspend fun loadReviewContext() = SmsReviewContext(
+        categories = categoryRepository.expenseCategories.first(),
+        expenses = expenseRepository.all.first(),
+        incomeTransactions = incomeRepository.transactions.first(),
+        transfers = profileRepository.transfers.first(),
+        cardPayments = creditCardRepository.payments.first(),
+        accounts = profileRepository.accounts.first(),
+        creditCards = creditCardRepository.all.first(),
+        incomeSources = incomeRepository.sources.first(),
+        importedSmsIds = ImportedSmsIds.parse(settingsStore.settings.first().importedSmsIds)
+    )
 
     fun toggle(id: Long) {
         _state.update { current ->
             current.copy(
                 rows = current.rows.map { row ->
-                    if (row.candidate.smsId == id) row.copy(isSelected = !row.isSelected) else row
+                    if (row.key == id) row.copy(isSelected = !row.isSelected) else row
                 }
             )
         }
@@ -177,11 +289,7 @@ class SmsImportViewModel @Inject constructor(
         _state.update { current ->
             current.copy(
                 rows = current.rows.map { row ->
-                    if (row.candidate.smsId == id) {
-                        row.copy(suggestedCategoryId = categoryId)
-                    } else {
-                        row
-                    }
+                    if (row.key == id) row.copy(suggestedCategoryId = categoryId) else row
                 }
             )
         }
@@ -195,81 +303,197 @@ class SmsImportViewModel @Inject constructor(
 
     fun remove(id: Long) {
         _state.update { current ->
-            current.copy(rows = current.rows.filterNot { it.candidate.smsId == id })
+            current.copy(rows = current.rows.filterNot { it.key == id })
         }
     }
 
     fun clearAll() {
         _state.update {
-            it.copy(rows = emptyList(), pastedError = null, hasParsed = false)
+            it.copy(
+                rows = emptyList(),
+                pastedError = null,
+                hasParsed = false,
+                scanSummary = null,
+                importError = null
+            )
         }
     }
 
+    /**
+     * Saves every ticked row as the record its plan names.
+     *
+     * Runs to the end even if the screen is closed part way, because the ids of what was
+     * saved have to be remembered with it: a half-finished import that forgot them would
+     * offer the same messages again as if they were new.
+     */
     fun importSelected(onDone: (Int) -> Unit) {
+        if (_state.value.isImporting) return
+        _state.update { it.copy(isImporting = true, importError = null) }
+
         viewModelScope.launch {
-            val selected = _state.value.rows.filter { it.isSelected }
-            val fallbackCategory = _state.value.categories.firstOrNull()
-
-            var imported = 0
-            selected.forEach { row ->
-                val parsed = row.candidate.parsed
-                val amount = parsed.amount ?: return@forEach
-                val date = parsed.date ?: row.candidate.receivedOn
-
-                if (parsed.isDebit) {
-                    val categoryId = row.suggestedCategoryId
-                        ?: fallbackCategory?.id
-                        ?: return@forEach
-                    expenseRepository.add(
-                        Expense(
-                            id = 0,
-                            amount = amount,
-                            description = parsed.suggestedDescription(),
-                            categoryId = categoryId,
-                            date = date,
-                            paymentMethod = PaymentMethod.BANK_TRANSFER,
-                            notes = "Imported from an SMS alert"
-                        )
-                    )
-                } else {
-                    incomeRepository.addTransaction(
-                        IncomeTransaction(
-                            id = 0,
-                            sourceId = null,
-                            name = parsed.suggestedDescription(),
-                            type = IncomeType.OTHER,
-                            amount = amount,
-                            date = date,
-                            accountId = null,
-                            periodKey = null,
-                            notes = "Imported from an SMS alert"
-                        )
-                    )
+            val imported = withContext(NonCancellable) {
+                try {
+                    reviewLock.withLock { importTickedRows() }
+                } finally {
+                    _state.update { it.copy(isImporting = false) }
                 }
-                imported++
-            }
-
-            _state.update { current ->
-                current.copy(rows = current.rows.filterNot { it.isSelected })
             }
             onDone(imported)
         }
     }
-}
 
-data class SmsImportRow(
-    val candidate: SmsCandidate,
-    val suggestedCategoryId: Long?,
-    /** How sure the app is that this is something already recorded. */
-    val duplicate: DuplicateVerdict,
-    val isSelected: Boolean
-) {
-    val isDuplicate: Boolean get() = duplicate.isDuplicate
+    private suspend fun importTickedRows(): Int {
+        val selected = _state.value.rows.filter { it.isSelected }
+        val categories = _state.value.categories
+        // An expense needs a category. One left unpicked goes to "Other" rather than to
+        // whichever category happens to sort first.
+        val fallbackCategoryId = categories.firstOrNull { it.name.equals("Other", ignoreCase = true) }?.id
+            ?: categories.firstOrNull()?.id
+
+        val saved = mutableListOf<SmsImportRow>()
+        var failed = 0
+        selected.forEach { row ->
+            val ok = try {
+                write(row, fallbackCategoryId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                false
+            }
+            if (ok) saved += row else failed++
+        }
+
+        // If the ids cannot be written the records still stand, and a later scan still
+        // flags these messages through the duplicate check, just less certainly.
+        val inboxIds = saved.filter { it.candidate.isFromInbox }.map { it.candidate.smsId }
+        if (inboxIds.isNotEmpty()) {
+            runCatching { settingsStore.rememberImportedSms(inboxIds) }
+        }
+
+        // Only what was actually saved leaves the list; anything that failed stays, still
+        // ticked, so it can be tried again rather than vanishing unrecorded.
+        val savedKeys = saved.mapTo(HashSet()) { it.key }
+        _state.update { current ->
+            current.copy(
+                rows = current.rows.filterNot { it.key in savedKeys },
+                isImporting = false,
+                importError = when (failed) {
+                    0 -> null
+                    1 -> "One entry could not be saved and is still in the list."
+                    else -> "$failed entries could not be saved and are still in the list."
+                }
+            )
+        }
+        return saved.size
+    }
+
+    private suspend fun write(row: SmsImportRow, fallbackCategoryId: Long?): Boolean {
+        val parsed = row.candidate.parsed
+        val amount = parsed.amount ?: return false
+        val date = row.date
+
+        when (val plan = row.plan) {
+            is SmsImportPlan.CardSpend -> {
+                val categoryId = row.suggestedCategoryId ?: fallbackCategoryId ?: return false
+                // No account: a card purchase leaves the bank only when the bill is paid.
+                expenseRepository.add(
+                    Expense(
+                        id = 0,
+                        amount = amount,
+                        description = parsed.suggestedDescription(),
+                        categoryId = categoryId,
+                        date = date,
+                        paymentMethod = PaymentMethod.CREDIT_CARD,
+                        accountId = null,
+                        creditCardId = plan.card?.id,
+                        notes = IMPORT_NOTE
+                    )
+                )
+            }
+            is SmsImportPlan.BankDebit -> {
+                val categoryId = row.suggestedCategoryId ?: fallbackCategoryId ?: return false
+                expenseRepository.add(
+                    Expense(
+                        id = 0,
+                        amount = amount,
+                        description = parsed.suggestedDescription(),
+                        categoryId = categoryId,
+                        date = date,
+                        paymentMethod = plan.method,
+                        accountId = plan.account?.id,
+                        notes = IMPORT_NOTE
+                    )
+                )
+            }
+            is SmsImportPlan.CashWithdrawal -> {
+                profileRepository.transfer(
+                    fromAccountId = plan.from.id,
+                    toAccountId = plan.to.id,
+                    amount = amount,
+                    on = date,
+                    notes = "Cash withdrawal, imported from an SMS alert"
+                ) ?: return false
+            }
+            is SmsImportPlan.CardBillPayment -> {
+                // The card as it is now, since the payment is taken off its current figure.
+                val card = creditCardRepository.getById(plan.card.id) ?: return false
+                creditCardRepository.payBill(
+                    card = card,
+                    amount = amount,
+                    paidOn = date,
+                    accountId = plan.account?.id,
+                    notes = IMPORT_NOTE
+                )
+            }
+            is SmsImportPlan.ScheduledIncome -> {
+                // Through the same call as "mark received", so the receipt carries the
+                // income's id and the period it settles, and the forecast stops expecting it.
+                val source = incomeRepository.getSource(plan.source.id) ?: plan.source
+                incomeRepository.markSourceReceived(source, amount, receivedOn = date)
+            }
+            is SmsImportPlan.OtherIncome -> {
+                incomeRepository.addTransaction(
+                    IncomeTransaction(
+                        id = 0,
+                        sourceId = null,
+                        name = parsed.suggestedDescription(),
+                        type = IncomeType.OTHER,
+                        amount = amount,
+                        date = date,
+                        accountId = plan.account?.id,
+                        periodKey = null,
+                        notes = IMPORT_NOTE
+                    )
+                )
+            }
+        }
+        return true
+    }
+
+    private companion object {
+        const val IMPORT_NOTE = "Imported from an SMS alert"
+        const val PASTED_SENDER = "Pasted"
+        val SCAN_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM, h:mm a", Locale.ENGLISH)
+
+        fun count(n: Int, noun: String) = if (n == 1) "1 $noun" else "$n ${noun}s"
+    }
 }
 
 data class SmsImportState(
     val rows: List<SmsImportRow> = emptyList(),
     val categories: List<Category> = emptyList(),
+    /** How far back the next scan reads. */
+    val period: SmsScanPeriod = SmsScanPeriod.SINCE_LAST_SCAN,
+    val lastScanAt: Instant? = null,
+    val isScanning: Boolean = false,
+    val hasScanned: Boolean = false,
+    /** What the last scan read and found, so an empty list is never left unexplained. */
+    val scanSummary: String? = null,
+    val scanError: String? = null,
+    val permissionDenied: Boolean = false,
+    val canAskPermissionAgain: Boolean = true,
+    val isImporting: Boolean = false,
+    val importError: String? = null,
     val hasParsed: Boolean = false,
     /** How the last paste went, so the screen can say what happened to it. */
     val lastAccepted: Int = 0,
@@ -287,4 +511,27 @@ data class SmsImportState(
             lastRejected == 1 -> "One message was not a transaction and was skipped."
             else -> "$lastRejected messages were not transactions and were skipped."
         }
+
+    /** What the chosen period will read, in words, shown under the period chips. */
+    val periodDescription: String
+        get() {
+            val days = period.days
+            if (days != null) return "Reads the bank messages from the last $days days."
+            val now = Instant.now()
+            val last = lastScanAt?.takeUnless { it.isAfter(now) }
+                ?: return "This is your first scan, so it reads the last " +
+                    "${SmsScanWindow.FIRST_SCAN_DAYS} days."
+            val longest = now.minus(Duration.ofDays(SmsScanWindow.LONGEST_DAYS))
+            return if (last.minus(SmsScanWindow.OVERLAP).isBefore(longest)) {
+                "Your last scan was over ${SmsScanWindow.LONGEST_DAYS} days ago, so this reads " +
+                    "the last ${SmsScanWindow.LONGEST_DAYS} days."
+            } else {
+                "Reads what arrived since your last scan, " +
+                    "${PERIOD_TIME.format(last.atZone(ZoneId.systemDefault()))}."
+            }
+        }
+
+    private companion object {
+        val PERIOD_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("d MMM, h:mm a", Locale.ENGLISH)
+    }
 }

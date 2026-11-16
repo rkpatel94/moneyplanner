@@ -1,5 +1,6 @@
 package com.moneyplanner.domain.calc
 
+import com.moneyplanner.core.time.DateUtil
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
@@ -27,11 +28,20 @@ object BackupHealthCalculator {
     /** Below this many records there is little enough at stake to stay quiet. */
     const val WORTH_WARNING_ABOUT = 10
 
+    /**
+     * [autoBackupFailedEpochDay] and [autoBackupFailureReason] are the last backup to the
+     * chosen folder that failed with none working since. They are judged apart from the
+     * age of the last backup, because that age cannot tell them apart: a backup file made
+     * by hand yesterday makes the records look safe while the weekly copy, the one the user
+     * is relying on, has stopped.
+     */
     fun assess(
         lastBackupEpochDay: Long?,
         autoBackupConfigured: Boolean,
         recordCount: Int,
-        today: LocalDate
+        today: LocalDate,
+        autoBackupFailedEpochDay: Long? = null,
+        autoBackupFailureReason: String? = null
     ): BackupHealth {
         val daysSince = lastBackupEpochDay?.let {
             ChronoUnit.DAYS.between(LocalDate.ofEpochDay(it), today).coerceAtLeast(0)
@@ -46,12 +56,21 @@ object BackupHealthCalculator {
             else -> BackupState.RECENT
         }
 
+        // Once automatic backup is turned off, a failure from before is history rather than
+        // something to act on, and reporting it would only confuse.
+        val failedOn = autoBackupFailedEpochDay
+            ?.takeIf { autoBackupConfigured }
+            ?.let { LocalDate.ofEpochDay(it) }
+
         return BackupHealth(
             state = state,
             daysSinceBackup = daysSince,
             lastBackupOn = lastBackupEpochDay?.let { LocalDate.ofEpochDay(it) },
             autoBackupConfigured = autoBackupConfigured,
-            recordCount = recordCount
+            recordCount = recordCount,
+            autoBackupFailedOn = failedOn,
+            autoBackupFailureReason = autoBackupFailureReason
+                ?.takeIf { failedOn != null && it.isNotBlank() }
         )
     }
 }
@@ -71,10 +90,26 @@ data class BackupHealth(
     val daysSinceBackup: Long?,
     val lastBackupOn: LocalDate?,
     val autoBackupConfigured: Boolean,
-    val recordCount: Int
+    val recordCount: Int,
+    /**
+     * When the automatic backup last failed, if none has worked since. Null when it has not
+     * failed, and whenever automatic backup is not set up.
+     */
+    val autoBackupFailedOn: LocalDate? = null,
+    /** Why it failed, when that is known. */
+    val autoBackupFailureReason: String? = null
 ) {
+    /** True while the weekly copy the user set up is not being made. */
+    val autoBackupFailing: Boolean get() = autoBackupFailedOn != null
+
+    /**
+     * A failing automatic backup always needs attention, however recent the last backup.
+     * The user chose a folder so they would not have to remember; if the copy has stopped,
+     * they are the only one who can find out why.
+     */
     val needsAttention: Boolean
-        get() = state == BackupState.NEVER ||
+        get() = autoBackupFailing ||
+            state == BackupState.NEVER ||
             state == BackupState.STALE ||
             state == BackupState.OVERDUE
 
@@ -96,9 +131,19 @@ data class BackupHealth(
 
     /**
      * Why it matters, said once and only when it does. A folder already chosen changes
-     * the advice: the job is then to find out why the weekly copy stopped.
+     * the advice: the job is then to find out why the weekly copy stopped. A recorded
+     * failure comes first, because it says exactly that.
      */
     fun detail(): String? = when {
+        // "To your folder" rather than "automatic": Back up now writes to the same folder,
+        // and its failure means the weekly copy will fail in exactly the same way.
+        autoBackupFailedOn != null -> buildString {
+            append("The backup to your folder on ")
+            append(DateUtil.formatDate(autoBackupFailedOn))
+            append(" failed")
+            autoBackupFailureReason?.let { append(": ").append(it) }
+            append(". No weekly copy is being made until it works again.")
+        }
         state == BackupState.NOTHING_TO_LOSE -> null
         state == BackupState.RECENT && autoBackupConfigured -> null
         state == BackupState.RECENT ->

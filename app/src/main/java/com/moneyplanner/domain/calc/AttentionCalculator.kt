@@ -31,7 +31,7 @@ object AttentionCalculator {
         // Only meaningful once there is an account to have assigned. Before the user sets
         // one up, an unassigned expense is not a mistake, it is the app not having asked
         // yet, and flagging it would be scolding somebody for following the setup.
-        val unassigned = if (snapshot.accounts.isEmpty()) {
+        val unassigned = if (snapshot.accounts.none { !it.isArchived }) {
             emptyList()
         } else {
             snapshot.expenses.filter(::isUnassigned)

@@ -159,4 +159,109 @@ class SmsDuplicateDetectorTest {
         )
         assertFalse(verdict.isDuplicate)
     }
+
+    // ---- Money in, transfers and card payments -----------------------------------------
+
+    @Test
+    fun `a credit matching income already recorded is flagged`() {
+        // A salary marked received by hand, then imported again from its credit alert.
+        val recorded = listOf(incomeTransaction(amount = 85_000, date = "2026-11-01"))
+        val verdict = SmsDuplicateDetector.checkIncome(
+            amount = rupees(85_000),
+            date = date("2026-11-01"),
+            payer = null,
+            existing = recorded
+        )
+        assertEquals(DuplicateVerdict.Likely, verdict)
+    }
+
+    @Test
+    fun `a credit a day away from recorded income is still a question`() {
+        val recorded = listOf(incomeTransaction(amount = 85_000, date = "2026-11-01"))
+        val verdict = SmsDuplicateDetector.checkIncome(
+            amount = rupees(85_000),
+            date = date("2026-10-31"),
+            payer = null,
+            existing = recorded
+        )
+        assertEquals(DuplicateVerdict.Possible, verdict)
+    }
+
+    @Test
+    fun `a credit naming the recorded payer on the same day is certain`() {
+        val recorded = listOf(incomeTransaction(amount = 85_000, date = "2026-11-01"))
+        val verdict = SmsDuplicateDetector.checkIncome(
+            amount = rupees(85_000),
+            date = date("2026-11-01"),
+            payer = "Salary",
+            existing = recorded
+        )
+        assertEquals(DuplicateVerdict.Certain, verdict)
+    }
+
+    @Test
+    fun `a different credit amount is not income already recorded`() {
+        val recorded = listOf(incomeTransaction(amount = 85_000, date = "2026-11-01"))
+        val verdict = SmsDuplicateDetector.checkIncome(
+            amount = rupees(84_999),
+            date = date("2026-11-01"),
+            payer = null,
+            existing = recorded
+        )
+        assertEquals(DuplicateVerdict.None, verdict)
+    }
+
+    @Test
+    fun `a withdrawal matching a recorded transfer is flagged`() {
+        val transfers = listOf(
+            com.moneyplanner.domain.model.AccountTransfer(
+                id = 1, fromAccountId = 1, toAccountId = 2,
+                amount = rupees(5_000), date = date("2026-11-15")
+            )
+        )
+        assertEquals(
+            DuplicateVerdict.Likely,
+            SmsDuplicateDetector.checkTransfer(rupees(5_000), date("2026-11-15"), transfers)
+        )
+        assertEquals(
+            DuplicateVerdict.None,
+            SmsDuplicateDetector.checkTransfer(rupees(5_000), date("2026-11-18"), transfers)
+        )
+    }
+
+    @Test
+    fun `a card bill payment matching one already recorded is flagged`() {
+        val payments = listOf(
+            com.moneyplanner.domain.model.CreditCardPayment(
+                id = 1, cardId = 1, amount = rupees(8_500),
+                paidDate = date("2026-11-10"), accountId = 1, notes = ""
+            )
+        )
+        assertEquals(
+            DuplicateVerdict.Possible,
+            SmsDuplicateDetector.checkCardPayment(rupees(8_500), date("2026-11-11"), payments)
+        )
+    }
+
+    @Test
+    fun `the stronger of two verdicts wins`() {
+        assertEquals(
+            DuplicateVerdict.Likely,
+            SmsDuplicateDetector.strongest(DuplicateVerdict.Possible, DuplicateVerdict.Likely)
+        )
+        assertEquals(
+            DuplicateVerdict.SameBatch,
+            SmsDuplicateDetector.strongest(DuplicateVerdict.SameBatch, DuplicateVerdict.Certain)
+        )
+        assertEquals(
+            DuplicateVerdict.None,
+            SmsDuplicateDetector.strongest(DuplicateVerdict.None, DuplicateVerdict.None)
+        )
+    }
+
+    @Test
+    fun `an already imported message says so and is not ready to import`() {
+        assertTrue(DuplicateVerdict.AlreadyImported.isDuplicate)
+        assertEquals("Already imported", DuplicateVerdict.AlreadyImported.label)
+    }
 }

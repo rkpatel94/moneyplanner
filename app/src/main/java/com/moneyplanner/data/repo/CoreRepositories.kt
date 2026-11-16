@@ -127,8 +127,13 @@ class ProfileRepository @Inject constructor(
     val profile: Flow<UserProfile> =
         dao.observeProfile().map { it?.toDomain() ?: UserProfile() }
 
+    /** Open accounts only: what a picker should offer for something new. */
     val accounts: Flow<List<Account>> =
         dao.observeAccounts().map { list -> list.map { it.toDomain() } }
+
+    /** Every account including closed ones, which is what the balance is built from. */
+    val allAccounts: Flow<List<Account>> =
+        dao.observeAllAccounts().map { list -> list.map { it.toDomain() } }
 
     val adjustments: Flow<List<com.moneyplanner.domain.model.BalanceAdjustment>> =
         dao.observeAdjustments().map { list -> list.map { it.toDomain() } }
@@ -221,7 +226,10 @@ class ProfileRepository @Inject constructor(
         val date = today.today()
         dao.insertAdjustment(
             BalanceAdjustmentEntity(
-                accountId = dao.getAllAccounts().firstOrNull()?.id,
+                // The first open account. A closed one sorted first would otherwise take
+                // the correction, and show it against an account nobody is using.
+                accountId = dao.getAllAccounts().firstOrNull { !it.isArchived }?.id
+                    ?: dao.getAllAccounts().firstOrNull()?.id,
                 deltaPaise = delta.paise,
                 dateEpochDay = date.toEpochDay(),
                 reason = reason,

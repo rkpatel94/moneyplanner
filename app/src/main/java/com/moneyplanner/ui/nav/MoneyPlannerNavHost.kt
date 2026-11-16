@@ -39,8 +39,9 @@ import com.moneyplanner.ui.screens.commitments.AnnualEditorScreen
 import com.moneyplanner.ui.screens.commitments.AnnualScreen
 import com.moneyplanner.ui.screens.commitments.BillEditorScreen
 import com.moneyplanner.ui.screens.commitments.BillsScreen
-import com.moneyplanner.ui.screens.commitments.CardEditorScreen
-import com.moneyplanner.ui.screens.commitments.CardsScreen
+import com.moneyplanner.ui.screens.cards.CardDetailScreen
+import com.moneyplanner.ui.screens.cards.CardEditorScreen
+import com.moneyplanner.ui.screens.cards.CardsScreen
 import com.moneyplanner.ui.screens.dashboard.DashboardScreen
 import com.moneyplanner.ui.screens.emi.EmiDetailScreen
 import com.moneyplanner.ui.screens.emi.EmiEditorScreen
@@ -162,7 +163,8 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
                     },
                     onOpenAffordability = { navController.navigate(Routes.AFFORDABILITY) },
                     onOpenAssistant = { navController.navigate(Routes.ASSISTANT) },
-                    onOpenBudgets = { navController.navigate(Routes.BUDGETS) }
+                    onOpenBudgets = { navController.navigate(Routes.BUDGETS) },
+                    onOpenExpense = { id -> navController.navigate(Routes.editExpense(id)) }
                 )
             }
 
@@ -311,8 +313,13 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
                 AddPersonScreen(
                     onBack = { navController.popBackStackSafely() },
                     onSaved = { id ->
+                        // Added from the split form, the user is in the middle of splitting a
+                        // bill: back to it, where the new person is now offered. From the
+                        // people list, on to the person just added.
+                        val fromSplit = navController.previousBackStackEntry?.destination?.route ==
+                            Routes.ADD_SHARED_EXPENSE
                         navController.popBackStack()
-                        navController.navigate(Routes.personDetail(id))
+                        if (!fromSplit) navController.navigate(Routes.personDetail(id))
                     }
                 )
             }
@@ -407,12 +414,23 @@ fun MoneyPlannerNavHost(navController: NavHostController = rememberNavController
                 CardsScreen(
                     onBack = { navController.popBackStackSafely() },
                     onAddCard = { navController.navigate(Routes.ADD_CARD) },
-                    onEditCard = { id -> navController.navigate(Routes.editCard(id)) }
+                    onOpenCard = { id -> navController.navigate(Routes.cardDetail(id)) }
                 )
             }
 
             composable(Routes.ADD_CARD) {
                 CardEditorScreen(onBack = { navController.popBackStackSafely() })
+            }
+
+            composable(
+                route = Routes.CARD_DETAIL,
+                arguments = listOf(navArgument(Routes.ARG_CARD_ID) { type = NavType.StringType })
+            ) {
+                CardDetailScreen(
+                    onBack = { navController.popBackStackSafely() },
+                    onEditCard = { id -> navController.navigate(Routes.editCard(id)) },
+                    onOpenExpense = { id -> navController.navigate(Routes.editExpense(id)) }
+                )
             }
 
             composable(

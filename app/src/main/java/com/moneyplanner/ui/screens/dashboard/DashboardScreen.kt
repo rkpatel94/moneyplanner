@@ -128,6 +128,8 @@ fun DashboardScreen(
     onOpenAffordability: () -> Unit,
     onOpenAssistant: () -> Unit,
     onOpenBudgets: () -> Unit,
+    /** Opens one expense, for checking a record before settling or deleting it. */
+    onOpenExpense: (Long) -> Unit = {},
     viewModel: DashboardViewModel = hiltViewModel()
 ) {
     when (val current = viewModel.state.collectAsStateWithLifecycle().value) {
@@ -148,7 +150,8 @@ fun DashboardScreen(
             onOpenUnassigned = onOpenUnassigned,
             onOpenAffordability = onOpenAffordability,
             onOpenAssistant = onOpenAssistant,
-            onOpenBudgets = onOpenBudgets
+            onOpenBudgets = onOpenBudgets,
+            onOpenExpense = onOpenExpense
         )
     }
 }
@@ -170,7 +173,8 @@ private fun DashboardContent(
     onOpenUnassigned: () -> Unit,
     onOpenAffordability: () -> Unit,
     onOpenAssistant: () -> Unit,
-    onOpenBudgets: () -> Unit
+    onOpenBudgets: () -> Unit,
+    onOpenExpense: (Long) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
@@ -206,6 +210,11 @@ private fun DashboardContent(
                 )
             }
         }
+
+        // Records the app cannot place: no account, or an expense that looks like a bill
+        // still marked unpaid. Each can be settled or deleted where it is shown. The card
+        // draws nothing when there are none.
+        item(key = "unlinked") { UnlinkedCard(onOpenExpense = onOpenExpense) }
 
         // Held back until there is something recorded. A brand-new install has no balance
         // yet, so it sits below the comfort floor from the first day, and the card used to

@@ -8,11 +8,14 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -50,12 +53,23 @@ class SettingsStore @Inject constructor(
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val ONBOARDED = booleanPreferencesKey("onboarded")
 
+        /** Set once the missing-expense repair in [com.moneyplanner.data.repo.LedgerRepair] has run. */
+        val LEDGER_REPAIR_V1 = booleanPreferencesKey("ledger_repair_v1")
+        /** Home suggestions the user has said are not a payment, by suggestion key. */
+        val DISMISSED_LINK_SUGGESTIONS = stringSetPreferencesKey("dismissed_link_suggestions")
+
         val AUTO_BACKUP_ENABLED = booleanPreferencesKey("auto_backup_enabled")
         val BACKUP_FOLDER_URI = stringPreferencesKey("backup_folder_uri")
         val LAST_BACKUP_EPOCH_DAY = intPreferencesKey("last_backup_epoch_day")
         val BACKUP_KEEP_COUNT = intPreferencesKey("backup_keep_count")
 
         val CASH_ACCOUNT_ADDED = booleanPreferencesKey("cash_account_added")
+
+        val AUTO_BACKUP_FAILED_EPOCH_DAY = longPreferencesKey("auto_backup_failed_epoch_day")
+        val AUTO_BACKUP_FAILURE_REASON = stringPreferencesKey("auto_backup_failure_reason")
+        val SMS_LAST_SCAN_AT = longPreferencesKey("sms_last_scan_at")
+        val SMS_IMPORTED_IDS =
+            androidx.datastore.preferences.core.stringSetPreferencesKey("sms_imported_ids")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -78,7 +92,11 @@ class SettingsStore @Inject constructor(
             backupFolderUri = prefs[Keys.BACKUP_FOLDER_URI],
             lastBackupEpochDay = prefs[Keys.LAST_BACKUP_EPOCH_DAY]?.toLong(),
             backupKeepCount = prefs[Keys.BACKUP_KEEP_COUNT] ?: 5,
-            cashAccountAdded = prefs[Keys.CASH_ACCOUNT_ADDED] ?: false
+            cashAccountAdded = prefs[Keys.CASH_ACCOUNT_ADDED] ?: false,
+            autoBackupFailedEpochDay = prefs[Keys.AUTO_BACKUP_FAILED_EPOCH_DAY],
+            autoBackupFailureReason = prefs[Keys.AUTO_BACKUP_FAILURE_REASON],
+            lastSmsScanEpochMillis = prefs[Keys.SMS_LAST_SCAN_AT],
+            importedSmsIds = prefs[Keys.SMS_IMPORTED_IDS].orEmpty()
         )
     }
 
@@ -99,7 +117,10 @@ class SettingsStore @Inject constructor(
 
     suspend fun setPin(pin: String) {
         val salt = PinHasher.newSalt()
-        val hash = PinHasher.hash(pin, salt)
+        // 120,000 rounds of PBKDF2 is deliberately slow, which is exactly why it must not
+        // run on the thread drawing the screen: callers launch from viewModelScope, which
+        // is the main thread, and the lock screen froze for every attempt.
+        val hash = withContext(Dispatchers.Default) { PinHasher.hash(pin, salt) }
         context.dataStore.edit {
             it[Keys.PIN_SALT] = salt
             it[Keys.PIN_HASH] = hash
@@ -113,7 +134,7 @@ class SettingsStore @Inject constructor(
         val prefs = context.dataStore.data.first()
         val salt = prefs[Keys.PIN_SALT] ?: return false
         val stored = prefs[Keys.PIN_HASH] ?: return false
-        return PinHasher.verify(pin, salt, stored)
+        return withContext(Dispatchers.Default) { PinHasher.verify(pin, salt, stored) }
     }
 
     /**
@@ -177,6 +198,28 @@ class SettingsStore @Inject constructor(
         it[Keys.ONBOARDED] = value
     }
 
+    suspend fun isLedgerRepairDone(): Boolean =
+        context.dataStore.data.first()[Keys.LEDGER_REPAIR_V1] ?: false
+
+    suspend fun markLedgerRepairDone() = context.dataStore.edit {
+        it[Keys.LEDGER_REPAIR_V1] = true
+    }
+
+    /**
+     * Suggestions on the home screen that the user has answered "not a payment" to.
+     *
+     * Kept so an expense that merely resembles the rent is not offered as the rent again
+     * every time the screen opens. Capped, oldest first out, so the set cannot grow forever.
+     */
+    val dismissedLinkSuggestions: Flow<Set<String>> = context.dataStore.data.map {
+        it[Keys.DISMISSED_LINK_SUGGESTIONS].orEmpty()
+    }
+
+    suspend fun dismissLinkSuggestion(key: String) = context.dataStore.edit { prefs ->
+        val current = prefs[Keys.DISMISSED_LINK_SUGGESTIONS].orEmpty()
+        prefs[Keys.DISMISSED_LINK_SUGGESTIONS] = (current + key).toList().takeLast(500).toSet()
+    }
+
     /**
      * Remembers the folder the user picked for automatic backups.
      *
@@ -205,6 +248,32 @@ class SettingsStore @Inject constructor(
     }
 
     /**
+     * Records a backup written to the chosen folder, and forgets any failure before it.
+     *
+     * Separate from [recordBackupRun] on purpose. Only a folder backup that worked shows the
+     * folder works again; a backup file made by hand and shared says nothing about it, so
+     * it must not clear the failure the settings screen is reporting.
+     */
+    suspend fun recordAutoBackupSuccess(epochDay: Long) = context.dataStore.edit {
+        it[Keys.LAST_BACKUP_EPOCH_DAY] = epochDay.toInt()
+        it.remove(Keys.AUTO_BACKUP_FAILED_EPOCH_DAY)
+        it.remove(Keys.AUTO_BACKUP_FAILURE_REASON)
+    }
+
+    /** Remembers the last folder backup that failed, and why, until one succeeds. */
+    suspend fun recordAutoBackupFailure(epochDay: Long, reason: String) =
+        context.dataStore.edit {
+            it[Keys.AUTO_BACKUP_FAILED_EPOCH_DAY] = epochDay
+            it[Keys.AUTO_BACKUP_FAILURE_REASON] = reason
+        }
+
+    /** Forgets a recorded failure, for when the folder it was about is no longer the one in use. */
+    suspend fun clearAutoBackupFailure() = context.dataStore.edit {
+        it.remove(Keys.AUTO_BACKUP_FAILED_EPOCH_DAY)
+        it.remove(Keys.AUTO_BACKUP_FAILURE_REASON)
+    }
+
+    /**
      * Records that the one-time cash account top-up has run, so it never runs again.
      */
     suspend fun markCashAccountAdded() = context.dataStore.edit {
@@ -219,6 +288,24 @@ class SettingsStore @Inject constructor(
      * to make.
      */
     suspend fun clearAll() = context.dataStore.edit { it.clear() }
+
+    /** Remembers when the inbox was last scanned, so "since last scan" means what it says. */
+    suspend fun recordSmsScan(epochMillis: Long) = context.dataStore.edit {
+        it[Keys.SMS_LAST_SCAN_AT] = epochMillis
+    }
+
+    /**
+     * Adds inbox message ids to those already imported, so a later scan can say so.
+     *
+     * Merged inside the edit rather than read and written back, so two imports finishing
+     * together cannot drop each other's ids, and capped to the most recent 2,000.
+     */
+    suspend fun rememberImportedSms(ids: Collection<Long>) = context.dataStore.edit {
+        it[Keys.SMS_IMPORTED_IDS] = com.moneyplanner.data.sms.ImportedSmsIds.merge(
+            stored = it[Keys.SMS_IMPORTED_IDS].orEmpty(),
+            added = ids
+        )
+    }
 }
 
 /** Wrong-PIN state, persisted so a restart cannot wipe the throttle. */
@@ -264,7 +351,19 @@ data class AppSettings(
      * Whether the install has already been given a cash account. Only ever used to stop
      * the one-time top-up repeating; it says nothing about whether the account still exists.
      */
-    val cashAccountAdded: Boolean = false
+    val cashAccountAdded: Boolean = false,
+    /**
+     * The day a backup to the chosen folder last failed, or null when none has failed since
+     * the last one that worked. A backup file made by hand leaves it alone: it proves nothing
+     * about the folder, and must not hide that the weekly copy has stopped.
+     */
+    val autoBackupFailedEpochDay: Long? = null,
+    /** A few words on why that backup failed, shown alongside it. */
+    val autoBackupFailureReason: String? = null,
+    /** When the message inbox was last scanned for bank alerts, or null if it never has been. */
+    val lastSmsScanEpochMillis: Long? = null,
+    /** Inbox ids of messages already imported, kept as text because preferences hold string sets. */
+    val importedSmsIds: Set<String> = emptySet()
 ) {
     val canAutoBackup: Boolean get() = autoBackupEnabled && backupFolderUri != null
 }

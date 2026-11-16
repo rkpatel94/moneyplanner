@@ -228,7 +228,14 @@ data class CreditCard(
     val dueDayOfMonth: Int,
     val isActive: Boolean,
     val notes: String,
-    val lastUpdated: LocalDate?
+    val lastUpdated: LocalDate?,
+    /**
+     * The date of the statement [currentOutstanding] was copied from.
+     *
+     * Null on a card whose figure was entered before the app asked for it; such a card
+     * falls back to [lastUpdated], which is how it always behaved.
+     */
+    val statementDate: LocalDate? = null
 ) {
     val availableLimit: Money get() = (creditLimit - currentOutstanding).coerceAtLeastZero()
 
@@ -244,7 +251,9 @@ data class CreditCardPayment(
     val amount: Money,
     val paidDate: LocalDate,
     val accountId: Long?,
-    val notes: String
+    val notes: String,
+    /** How the bill was paid. Never [PaymentMethod.CREDIT_CARD]: a card cannot pay itself. */
+    val paymentMethod: PaymentMethod = PaymentMethod.BANK_TRANSFER
 )
 
 data class RecurringBill(

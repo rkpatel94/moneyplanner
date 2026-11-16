@@ -42,9 +42,13 @@ object RunwayCalculator {
             month.month to month.estimatedEverydaySpend.divideRounded(days)
         }
 
+        // Anything the current month still expects but whose day has passed — rent not yet
+        // paid, a salary not yet marked received — is still coming, so it lands today.
+        // Dropping it, as this used to, left the day-by-day walk disagreeing with the
+        // month-end figure it is meant to explain.
         val itemsByDate = forecast
             .flatMap { it.items }
-            .filter { !it.date.isBefore(today) }
+            .map { if (it.date.isBefore(today)) it.copy(date = today) else it }
             .groupBy { it.date }
 
         var balance = BalanceCalculator.currentBalance(snapshot)

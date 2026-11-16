@@ -75,8 +75,12 @@ class BackupManager @Inject constructor(
          * older than that holds none even when the app it came from had several, and
          * restoring it leaves the app with no budgets at all. The preview reports that
          * through [BackupPreview.Readable.includesBudgets] before anything is replaced.
+         *
+         * Format 6 adds how each credit card payment was made, and the date of the statement
+         * a card's outstanding figure came from. A file from format 5 or earlier restores
+         * its card payments as bank payments and its cards without a statement date.
          */
-        const val FORMAT_VERSION = 5
+        const val FORMAT_VERSION = 6
 
         /** The first format that carries budgets; it stays 5 as the format moves on. */
         private const val FIRST_VERSION_WITH_BUDGETS = 5
@@ -95,9 +99,6 @@ class BackupManager @Inject constructor(
         private const val KEY_APP = "app"
 
         private const val EXPORT_DIR = "exports"
-
-        /** Characters a spreadsheet reads as the start of a formula. */
-        private val FORMULA_TRIGGERS = charArrayOf('=', '+', '-', '@')
     }
 
     private fun exportsDir(): File =
@@ -248,7 +249,7 @@ class BackupManager @Inject constructor(
                     put("frequency", row.frequency)
                     put("startDateEpochDay", row.startDateEpochDay)
                     put("endDateEpochDay", row.endDateEpochDay ?: JSONObject.NULL)
-                    put("annualIncrementPercent", row.annualIncrementPercent)
+                    put("annualIncrementPercent", row.annualIncrementPercent.finiteOrNull() ?: JSONObject.NULL)
                     put("accountId", row.accountId ?: JSONObject.NULL)
                     put("isActive", row.isActive)
                     put("notes", row.notes)
@@ -354,7 +355,7 @@ class BackupManager @Inject constructor(
                     put("sharedExpenseId", row.sharedExpenseId)
                     put("personId", row.personId ?: JSONObject.NULL)
                     put("shareAmountPaise", row.shareAmountPaise)
-                    put("sharePercent", row.sharePercent ?: JSONObject.NULL)
+                    put("sharePercent", row.sharePercent.finiteOrNull() ?: JSONObject.NULL)
                 }
             })
 
@@ -365,7 +366,7 @@ class BackupManager @Inject constructor(
                     put("categoryId", row.categoryId ?: JSONObject.NULL)
                     put("principalPaise", row.principalPaise)
                     put("emiAmountPaise", row.emiAmountPaise)
-                    put("interestRatePercent", row.interestRatePercent ?: JSONObject.NULL)
+                    put("interestRatePercent", row.interestRatePercent.finiteOrNull() ?: JSONObject.NULL)
                     put("startDateEpochDay", row.startDateEpochDay)
                     put("firstDueDateEpochDay", row.firstDueDateEpochDay)
                     put("frequency", row.frequency)
@@ -405,6 +406,7 @@ class BackupManager @Inject constructor(
                     put("isActive", row.isActive)
                     put("notes", row.notes)
                     put("lastUpdatedEpochDay", row.lastUpdatedEpochDay)
+                    put("statementDateEpochDay", row.statementDateEpochDay ?: JSONObject.NULL)
                 }
             })
 
@@ -416,6 +418,7 @@ class BackupManager @Inject constructor(
                     put("paidDateEpochDay", row.paidDateEpochDay)
                     put("accountId", row.accountId ?: JSONObject.NULL)
                     put("notes", row.notes)
+                    put("paymentMethod", row.paymentMethod)
                 }
             })
 
@@ -971,7 +974,9 @@ class BackupManager @Inject constructor(
                             dueDayOfMonth = row.optInt("dueDayOfMonth", 15),
                             isActive = row.optBoolean("isActive", true),
                             notes = row.optString("notes"),
-                            lastUpdatedEpochDay = row.optLong("lastUpdatedEpochDay")
+                            lastUpdatedEpochDay = row.optLong("lastUpdatedEpochDay"),
+                            // Format 6 and later; older cards restore without one, as they were.
+                            statementDateEpochDay = row.optLongOrNull("statementDateEpochDay")
                         )
                     )
                 }
@@ -984,7 +989,11 @@ class BackupManager @Inject constructor(
                             amountPaise = row.getLong("amountPaise"),
                             paidDateEpochDay = row.getLong("paidDateEpochDay"),
                             accountId = row.optLongOrNull("accountId"),
-                            notes = row.optString("notes")
+                            notes = row.optString("notes"),
+                            // Format 6 and later. Older files predate the field, and every
+                            // card payment in them was a bank payment as far as the app knew.
+                            paymentMethod = row.optString("paymentMethod", "BANK_TRANSFER")
+                                .ifBlank { "BANK_TRANSFER" }
                         )
                     )
                 }
@@ -1094,56 +1103,39 @@ class BackupManager @Inject constructor(
 
     /**
      * Expenses as CSV, which opens directly in Excel and Google Sheets.
-     * Fields are quoted and embedded quotes are doubled, per the CSV convention.
+     *
+     * The text is written by [ExpenseCsv], the same code the import reads it with, so a
+     * file exported here always imports again: every field quoted with its quotes doubled,
+     * line breaks in a note kept inside their field, rows ending in CRLF, and a formula
+     * character at the start of a description neutralised on the way out and restored on
+     * the way back in. Amounts are plain digits and dates are ISO, the forms the import
+     * accepts.
      */
     suspend fun exportExpensesCsv(today: LocalDate): File = withContext(io) {
         val categories = database.categoryDao().getAll().associateBy { it.id }
         val people = database.peopleDao().getAll().associateBy { it.id }
         val expenses = database.expenseDao().getAll().sortedBy { it.dateEpochDay }
 
-        val builder = StringBuilder()
-        builder.appendLine(
-            listOf(
-                "Date", "Description", "Category", "Amount", "Payment method",
-                "Person", "Linked to", "Notes"
-            ).joinToString(",") { csvField(it) }
-        )
-
-        expenses.forEach { expense ->
-            val date = LocalDate.ofEpochDay(expense.dateEpochDay)
-            builder.appendLine(
-                listOf(
-                    date.toString(),
-                    expense.description,
-                    categories[expense.categoryId]?.name ?: "",
-                    com.moneyplanner.core.money.IndianFormat.formatForExport(
+        val text = ExpenseCsv.write(
+            expenses.map { expense ->
+                ExpenseCsv.Row(
+                    date = LocalDate.ofEpochDay(expense.dateEpochDay).toString(),
+                    description = expense.description,
+                    category = categories[expense.categoryId]?.name ?: "",
+                    amount = com.moneyplanner.core.money.IndianFormat.formatForExport(
                         com.moneyplanner.core.money.Money(expense.amountPaise)
                     ),
-                    expense.paymentMethod,
-                    expense.personId?.let { people[it]?.name } ?: "",
-                    if (expense.linkType == "NONE") "" else expense.linkType,
-                    expense.notes
-                ).joinToString(",") { csvField(it) }
-            )
-        }
+                    paymentMethod = expense.paymentMethod,
+                    person = expense.personId?.let { people[it]?.name } ?: "",
+                    linkedTo = if (expense.linkType == "NONE") "" else expense.linkType,
+                    notes = expense.notes
+                )
+            }
+        )
 
         val file = File(exportsDir(), "money-planner-expenses-${stamp(today)}.csv")
-        file.writeText(builder.toString())
+        file.writeText(text, Charsets.UTF_8)
         file
-    }
-
-    /**
-     * Quotes a field, doubling any embedded quotes.
-     *
-     * A leading =, +, - or @ is prefixed with an apostrophe first. Spreadsheets treat a
-     * cell starting with one of those as a formula, so a description someone typed as
-     * "=2+2" would be evaluated on open, and the sheet would show something the user
-     * never wrote. The apostrophe is the standard way to force it back to plain text.
-     */
-    private fun csvField(value: String): String {
-        val neutralised =
-            if (value.isNotEmpty() && value[0] in FORMULA_TRIGGERS) "'" + value else value
-        return "\"" + neutralised.replace("\"", "\"\"") + "\""
     }
 
     fun shareableUri(file: File): Uri = androidx.core.content.FileProvider.getUriForFile(
@@ -1263,3 +1255,16 @@ private fun JSONObject.optDoubleOrNull(key: String): Double? =
 
 private fun JSONObject.optStringOrNull(key: String): String? =
     if (isNull(key)) null else optString(key).takeIf { it.isNotEmpty() }
+
+/**
+ * A rate or percentage as a backup can hold it: the number itself when it is a real one,
+ * and null when it is not.
+ *
+ * Android's JSONObject throws from put for NaN and either infinity, and the doubles in a
+ * backup come from what the user typed, so a single interest rate that was not a number
+ * used to stop every backup from being written, the weekly one included, until it was
+ * found and corrected. Written as null instead, it restores as what the reader already
+ * takes null to mean: no interest rate known, no share percentage, and an annual increment
+ * of zero.
+ */
+internal fun Double?.finiteOrNull(): Double? = this?.takeIf { it.isFinite() }

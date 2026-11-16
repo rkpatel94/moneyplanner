@@ -33,11 +33,13 @@ object ReportsCalculator {
      */
     fun monthlyTrend(
         snapshot: FinancialSnapshot,
-        months: Int = DEFAULT_TREND_MONTHS
+        months: Int = DEFAULT_TREND_MONTHS,
+        /** The last month shown: the one the report is open on, which need not be this one. */
+        upTo: YearMonth = snapshot.currentMonth
     ): List<MonthSummary> {
         val current = snapshot.currentMonth
         return (months.coerceAtLeast(1) - 1 downTo 0).map { offset ->
-            val month = current.minusMonths(offset.toLong())
+            val month = upTo.minusMonths(offset.toLong())
             val income = snapshot.incomeTransactions
                 .filter { YearMonth.from(it.date) == month }
                 .sumOfMoney { it.amount }

@@ -64,6 +64,8 @@ object Routes {
 
     const val CARDS = "cards"
     const val ADD_CARD = "cards/add"
+    const val CARD_DETAIL = "cards/{cardId}"
+    fun cardDetail(id: Long) = "cards/$id"
     const val EDIT_CARD = "cards/edit/{cardId}"
     fun editCard(id: Long) = "cards/edit/$id"
 

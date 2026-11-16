@@ -6,9 +6,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.moneyplanner.core.money.Money
 import com.moneyplanner.data.db.AppDatabase
 import com.moneyplanner.data.db.DefaultData
+import com.moneyplanner.data.mapper.toDomain
 import com.moneyplanner.data.repo.AnnualExpenseRepository
 import com.moneyplanner.data.repo.BillRepository
 import com.moneyplanner.data.repo.EmiRepository
+import com.moneyplanner.data.repo.PaymentDefaults
 import com.moneyplanner.data.repo.PeopleRepository
 import com.moneyplanner.data.repo.TodayProvider
 import kotlinx.coroutines.flow.flowOf
@@ -66,11 +68,15 @@ class PaymentUndoTest {
             AppDatabase::class.java
         ).build()
 
-        bills = BillRepository(database.billDao(), database.expenseDao(), database, today)
-        annuals = AnnualExpenseRepository(
-            database.annualExpenseDao(), database.expenseDao(), database, today
+        val defaults = PaymentDefaults(database.categoryDao(), database.profileDao())
+        bills = BillRepository(
+            database.billDao(), database.expenseDao(), database, today, defaults,
+            database.creditCardDao()
         )
-        emis = EmiRepository(database.emiDao(), database.expenseDao(), database, today)
+        annuals = AnnualExpenseRepository(
+            database.annualExpenseDao(), database.expenseDao(), database, today, defaults
+        )
+        emis = EmiRepository(database.emiDao(), database.expenseDao(), database, today, defaults)
         people = PeopleRepository(database.peopleDao(), database.expenseDao(), database, today)
 
         database.categoryDao().insertAll(DefaultData.categories())
@@ -107,9 +113,8 @@ class PaymentUndoTest {
         listOf(6, 7, 8).forEach { month ->
             bills.markPaid(
                 bill = bill,
-                month = YearMonth.of(2026, month),
-                amount = Money.ofRupees(13_000),
                 dueDate = LocalDate.of(2026, month, 5),
+                amount = Money.ofRupees(13_000),
                 paidOn = LocalDate.of(2026, month, 5)
             )
         }
@@ -315,5 +320,59 @@ class PaymentUndoTest {
             "a deleted person must not leave a share pointing at an id that no longer resolves",
             database.peopleDao().getShares(sharedId).none { it.personId == amit }
         )
+    }
+
+    @Test
+    fun payingABillWithNoCategoryStillTakesItOffTheBalance() = runBlocking {
+        val billId = bills.add(rentBill().copy(categoryId = null))
+        val bill = bills.getById(billId)!!
+
+        bills.markPaid(bill = bill, dueDate = LocalDate.of(2026, 8, 5), amount = Money.ofRupees(13_000))
+
+        val expense = database.expenseDao().getAll().single()
+        assertEquals("the payment's expense is written even without a category", 1_300_000L, expense.amountPaise)
+        assertEquals(ExpenseLinkType.RECURRING_BILL.name, expense.linkType)
+    }
+
+    @Test
+    fun markingTheSamePeriodPaidTwiceWritesOneExpense() = runBlocking {
+        val billId = bills.add(rentBill())
+        val bill = bills.getById(billId)!!
+
+        repeat(2) {
+            bills.markPaid(bill = bill, dueDate = LocalDate.of(2026, 8, 5), amount = Money.ofRupees(13_000))
+        }
+
+        assertEquals(1, database.expenseDao().getAll().size)
+        assertEquals(1, database.billDao().getAllPayments().size)
+    }
+
+    @Test
+    fun anExistingExpenseCanBeSettledAsTheBillItPaid() = runBlocking {
+        val billId = bills.add(rentBill())
+        val bill = bills.getById(billId)!!
+        val expenseId = database.expenseDao().insert(
+            com.moneyplanner.data.db.entity.ExpenseEntity(
+                amountPaise = 1_300_000,
+                description = "Transfer to landlord",
+                categoryId = categoryId,
+                dateEpochDay = LocalDate.of(2026, 8, 6).toEpochDay(),
+                paymentMethod = PaymentMethod.UPI.name
+            )
+        )
+        val expense = database.expenseDao().getAll().single { it.id == expenseId }
+
+        val settled = bills.settleWithExpense(
+            bill,
+            LocalDate.of(2026, 8, 5),
+            expense.toDomain()
+        )
+
+        assertTrue(settled)
+        val linked = database.expenseDao().getAll().single()
+        assertEquals("no second expense: the money already left once", expenseId, linked.id)
+        assertEquals(ExpenseLinkType.RECURRING_BILL.name, linked.linkType)
+        assertEquals("2026-08", linked.linkPeriodKey)
+        assertEquals(1, database.billDao().getAllPayments().size)
     }
 }

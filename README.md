@@ -53,9 +53,21 @@ as long as the dependency list does. Every library's manifest is merged into the
 library that declared `INTERNET` would add it without a word; nothing that needs a network
 goes into that list.
 
-The app asks for no SMS access at all. Bank alerts are imported by pasting them, which
-costs a copy and a tap and keeps the promise that an app holding this much financial
-detail never reads your messages.
+The app declares `READ_SMS`, so it can import bank alerts straight from the inbox. It asks
+for the permission only when you tap **Scan messages** on the import screen — never at
+start-up, never in the background — and saying no leaves pasting a message, which needs no
+permission, working exactly as before. A scan looks only at messages from bank-like
+senders, the registered DLT headers such as `VM-HDFCBK` and short numeric codes, and skips
+anything from a phone number before reading its text. Messages are parsed on the device and
+held only in memory while you review them; nothing is saved but the entries you tick, the
+ids of the messages they came from (so the same alert is not offered twice) and the time of
+the last scan. With no `INTERNET` permission, nothing read from a message can be sent
+anywhere.
+
+`READ_SMS` is a restricted permission on Google Play: distributing the app through Play needs
+a Permissions Declaration explaining the SMS use, and Play may still refuse it. A sideloaded
+build is unaffected. The manifest also marks telephony as optional, so declaring the
+permission does not hide the app from devices without a SIM, where pasting still works.
 
 The merged manifest declares exactly these permissions:
 
@@ -63,6 +75,7 @@ The merged manifest declares exactly these permissions:
 | --- | --- | --- |
 | `POST_NOTIFICATIONS` | this app | Payment reminders. Requested only once reminders are switched on. |
 | `RECEIVE_BOOT_COMPLETED` | this app | Re-register the daily reminder after a restart. |
+| `READ_SMS` | this app | Importing bank alerts from the inbox. Requested only when Scan is tapped; reads bank-like senders only, on the device, and sends nothing anywhere. Declining leaves paste working. Needs a Play permissions declaration. |
 | `USE_BIOMETRIC` | this app | Optional biometric unlock. |
 | `USE_FINGERPRINT` | androidx.biometric | Legacy fallback for the above. |
 | `WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `FOREGROUND_SERVICE` | WorkManager | Pulled in transitively by the scheduler. `ACCESS_NETWORK_STATE` only reads connectivity status; it does not grant network access. |
@@ -218,9 +231,9 @@ it happens.
 
 ### Schema migrations
 
-The database is at **version 6**, with five migrations. Every table a migration creates is
+The database is at **version 7**, with six migrations. Every table a migration creates is
 copied from the schema Room itself exported, so it matches a fresh install; Room validates
-the result on open and refuses to start if a migration produces anything different. All six
+the result on open and refuses to start if a migration produces anything different. All seven
 schema versions are exported to `app/schemas`.
 
 | Version | Change | Notes |
@@ -230,36 +243,56 @@ schema versions are exported to `app/schemas`.
 | 3 → 4 | Transfers between the user's own accounts | Purely additive. A database with no transfers describes exactly the position it did before. |
 | 4 → 5 | Expense tags and receipt attachment metadata | Tags are reusable labels; receipts retain only the document-picker URI, not a copied image. |
 | 5 → 6 | Budget rollover and a per-budget alert threshold | Purely additive. SQLite adds a `NOT NULL` column only with a default, and the defaults reproduce the old behaviour exactly — no rollover, and the 80 percent warning every budget had before — so an existing budget behaves on upgrade precisely as it did. |
+| 6 → 7 | How each card payment was made; the date of the statement a card's figure came from | Purely additive. Earlier card payments become bank payments, which is all the app ever knew of them, and a card with no statement date keeps working from the date its figure was last changed. |
 
 Room is deliberately **not** given a destructive fallback: a missing migration must fail
 loudly rather than quietly delete a financial history that cannot be recreated.
 
 ## SMS capture, onboarding, prepayment and insights
 
-**SMS auto-capture.** The single biggest reduction in manual entry. `BankSmsParser` reads
-bank alerts into draft transactions — amount, debit or credit, date, merchant, account
-tail — across the formats the major Indian banks actually send. It is rule-based and
-therefore predictable, and 42 tests across two suites hold it to two properties that matter
-more than coverage: an amount is never wrong, and a message that is not a transaction is
-never treated as one. The second suite replays real alert formats from the banks people in
-India actually use, which is how the parser was caught rejecting genuine SBI debits. OTPs, due-date reminders, promotional offers and balance replies are all
-recognised and discarded.
+**SMS import.** The single biggest reduction in manual entry. `BankSmsParser` reads bank
+alerts into draft transactions — amount, debit or credit, date, merchant, account and card
+tail, and how the money moved: UPI, debit card, credit card, ATM or card bill — across the
+formats the major Indian banks actually send. It is rule-based and therefore predictable,
+and 81 tests across three suites hold it to two properties that matter more than coverage:
+an amount is never wrong, and a message that is not a transaction is never treated as one.
+The suites replay current alert formats from HDFC, ICICI, SBI, Axis, Kotak and Paytm, which
+is how the parser was caught rejecting genuine SBI debits, reading ICICI credit card spends
+as money received, and taking a card's available limit for the amount of a spend made in
+dollars. OTPs, due-date reminders, promotional offers, balance replies, mandate set-ups and
+refunds onto a credit card are all recognised and discarded.
+
+**Scanning the inbox.** Tapping **Scan messages** reads the inbox for bank alerts — since
+the last scan by default, or over the last 7, 30 or 90 days; a first scan reads 30.
+`READ_SMS` is requested at that moment and never earlier, and turning it down leaves pasting,
+just below, working as before. Only bank-like senders are read: registered DLT headers such
+as `VM-HDFCBK` or `AD-SBIUPI-S`, bare sender IDs, and short codes of six digits or fewer.
+Anything from a phone number is passed over before its text is looked at, and so is anything
+from a promotional `-P` header. All of it happens on the device and nothing is sent
+anywhere; the app has no network permission to send it with. Distributing through Play needs
+a permissions declaration for `READ_SMS`.
+
+Pasting stays for anyone who prefers it or declines the permission. Several messages can go
+in at once, separated by blank lines, which is how a batch arrives when someone catches up
+on a week.
+
+**Each row says what it will become.** A credit card spend goes on the card it names,
+matched by its last four digits, and touches no account, because cash leaves only when the
+bill is paid. A UPI or debit card payment leaves the first bank account. An ATM withdrawal is
+a transfer from the bank to the cash account rather than spending. A card bill paid from the
+bank is recorded as a payment on that card. A credit that matches a regular income — within
+a tenth of its amount and five days of its due date — is recorded as that income received,
+stamped with the month it settles, so the forecast stops expecting it. The row says which
+before anything is saved: "Card ••1234", "Cash withdrawal → Cash", "Salary for November".
 
 Nothing imports automatically. Every candidate is reviewed, the raw message sits one tap
-away under each row, and anything that looks like an existing expense arrives
-flagged and unticked — a duplicate is worse than a miss, because a miss is visibly absent
-while a duplicate quietly makes the balance wrong. Matching allows a day either side, since
-an alert can arrive after midnight for a purchase made before it, and the same message
-pasted twice is caught within the batch.
-
-Import is by pasting, and the app asks for no SMS permission at all. Several messages can
-go in at once, separated by blank lines, which is how a batch arrives when someone catches
-up on a week.
-
-> Reading the inbox behind `READ_SMS` was removed. Play grants that permission almost
-> exclusively to default SMS handler apps, so it blocked distribution for a feature that
-> works without it, and an app trusted with this much financial detail is stronger for
-> never asking to read your messages.
+away under each row, and anything that looks like something already recorded — an expense,
+income, a transfer or a card payment — arrives flagged and unticked: a duplicate is worse
+than a miss, because a miss is visibly absent while a duplicate quietly makes the balance
+wrong. Matching allows a day either side, since an alert can arrive after midnight for a
+purchase made before it. The review list is one batch however it was filled, so a message
+pasted and then scanned, or scanned twice, appears once; and the ids of imported messages,
+the most recent 2,000 of them, are remembered so a later scan marks them "Already imported".
 
 **Onboarding.** Four steps — name, balance, income, fixed outgoings — every one skippable.
 It exists because a new user previously landed on an empty dashboard showing zero and had
@@ -329,6 +362,17 @@ Records written before accounts were tracked carry none, and are reported as **u
 rather than quietly attributed to whichever account happens to be first. It is the difference
 between what the user has and what they have told the app where to find, and showing it is
 more honest than inventing a home for it.
+
+**Home lists what is not linked yet.** Any expense, receipt, settlement or card payment with no
+account sits on a "Not linked yet" card, with Link account (or Choose card, for a card
+purchase with no card) and Delete. So does an everyday expense that looks like the payment of a
+bill, an EMI, a yearly expense or a card bill the app still expects, which would otherwise be
+counted twice: "Yes, it's this payment" links it, and "Not a payment" stops it being offered.
+Bill, EMI and yearly payments now take the account their payment method implies.
+
+**Closing an account keeps its money in the total.** A closed account's opening balance is
+part of the history its transfers were written against, so it stays in the balance, and the
+account stays listed for as long as it still holds money.
 
 ### Recent activity
 
@@ -406,6 +450,23 @@ the bank gave you, and what has gone on the card since — rather than merging t
 single number that would be wrong. Utilisation and the available limit use the total of the
 two, because that is what the card really has on it today.
 
+**Each bill is due on its own date.** The statement on file is due on the due date that
+follows it, and spending since then is due after the statement that will contain it. Both
+used to be booked on the due date of the cycle still open, a month late for the statement,
+so the forecast showed the bill a month after it was due and the reminder never came within
+reach. A bill past its due date is carried to today and marked overdue.
+
+**Paying a card asks how and from where.** The payment sheet offers the bill, the minimum or
+everything owed, the payment method and the account the money left, and the date. Paying no
+longer moves the card's statement date, which used to make every purchase between the
+statement and the payment drop out of what the card owed. Paying more than the statement
+leaves the card in credit against the next bill instead of losing the difference.
+
+**Each card has a page:** the bill and what is left of it, spending since the statement
+grouped by the bill it will be on, every payment (tap to correct or remove it), and a
+"New statement" sheet that takes the bank's figure and statement date. When a statement has
+been cut since the one on file, the card says so and shows what the app's own records add up to.
+
 ### Exporting to Excel
 
 **Settings → Export transactions to Excel** writes a real `.xlsx` workbook for a date range,
@@ -467,6 +528,11 @@ everything else, and the preview warns that the budgets in the app now will be r
 preview also counts bills, which it used to look for under a name the writer never used, and
 reports a file holding only what a fresh install creates as empty.
 
+Format 6 adds how each card payment was made and the date of the statement a card's figure
+came from; older files restore card payments as bank payments. After any restore, a payment
+an older version recorded without taking it off the balance gets its missing expense, the
+same one-time repair an upgrade runs.
+
 The wipe before a restore now clears tags as well. Nothing cascades into the tags table, so
 it used to survive every restore and every reset, and a tag already on the phone could shadow
 the file's own: the same name made the restore fail outright, the same id relabelled the
@@ -474,11 +540,12 @@ restored expenses. The export also reads every table inside one transaction, so 
 taken while something is being saved is a single moment of the ledger rather than one that
 can hold a tag link for an expense it does not contain.
 
-**SMS import is paste-only.** `READ_SMS` is gone. Play grants it almost exclusively to
-default SMS handler apps, so it blocked distribution for a feature that works without it.
-Several messages can be pasted at once. The parser covers more of what the major Indian
-banks actually send, and duplicate detection now allows a day either side, because an alert
-can arrive after midnight for a purchase made before it.
+**SMS import went paste-only for a while.** `READ_SMS` was dropped because Play restricts
+it, and pasting worked without it. It has since come back for the inbox scan, asked for
+only when Scan is tapped, with pasting kept beside it for anyone who declines (see SMS
+import above). Several messages can be pasted at once. The parser covers more of what the
+major Indian banks actually send, and duplicate detection now allows a day either side,
+because an alert can arrive after midnight for a purchase made before it.
 
 **The assistant knows more and asks better.** Six new intents, and suggested questions now
 come from the snapshot rather than a fixed list. Offering "who owes me money" to somebody
@@ -569,8 +636,9 @@ reconciliation adjustment.
 
 ## Tests
 
-411 JVM unit tests, all passing, covering every calculator plus the voice parser,
-the bank SMS parser, the assistant, budgets, runway, prepayment and insights:
+622 JVM unit tests, all passing, covering every calculator plus the voice parser,
+the bank SMS parser and the inbox import rules, the assistant, budgets, runway, prepayment,
+insights, card bill timing, unlinked records, the CSV reader and the reminder schedule:
 
 ```bash
 ./gradlew testDebugUnitTest
@@ -586,11 +654,12 @@ Two worked examples from the product brief are encoded as tests and reproduce ex
 the September cash flow (₹19,000 remaining) and the emergency fund shortfall
 (₹1,80,000 target, ₹70,000 saved, ₹1,10,000 to go).
 
-`app/src/androidTest` holds 23 instrumentation tests: database integrity (cascade deletes,
-restrict constraints, restore ordering), per-period payment undo, backups written and
-restored through the real writer, reader and database (budgets, bills, ledger entries, tags
-already on the device, older files), and replaying real databases through every migration up
-to version 6. All 23 pass on an API 37 emulator:
+`app/src/androidTest` holds 27 instrumentation tests: database integrity (cascade deletes,
+restrict constraints, restore ordering), per-period payment undo, payments that always come
+off the balance and cannot be recorded twice, settling an existing expense as a bill payment,
+backups written and restored through the real writer, reader and database (budgets, bills,
+ledger entries, tags already on the device, older files), and replaying real databases through
+every migration up to version 7. All 27 pass on an API 37 emulator:
 
 ```bash
 ./gradlew connectedDebugAndroidTest

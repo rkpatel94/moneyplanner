@@ -17,6 +17,8 @@ import com.moneyplanner.data.db.entity.EmiPaymentEntity
 import com.moneyplanner.data.db.entity.SavingsContributionEntity
 import com.moneyplanner.data.mapper.toDomain
 import com.moneyplanner.data.mapper.toEntity
+import com.moneyplanner.domain.calc.BillPeriod
+import com.moneyplanner.domain.calc.CreditCardCalculator
 import com.moneyplanner.domain.calc.EmiCalculator
 import com.moneyplanner.domain.model.AnnualExpense
 import com.moneyplanner.domain.model.AnnualExpensePayment
@@ -43,7 +45,8 @@ class EmiRepository @Inject constructor(
     private val dao: EmiDao,
     private val expenseDao: ExpenseDao,
     private val database: AppDatabase,
-    private val today: TodayProvider
+    private val today: TodayProvider,
+    private val defaults: PaymentDefaults
 ) {
     val all: Flow<List<Emi>> = dao.observeAll().map { list -> list.map { it.toDomain() } }
 
@@ -76,9 +79,17 @@ class EmiRepository @Inject constructor(
         amount: Money,
         paidOn: LocalDate = today.today(),
         paymentMethod: PaymentMethod = PaymentMethod.AUTO_DEBIT,
-        categoryId: Long?,
+        categoryId: Long? = null,
+        accountId: Long? = null,
         notes: String = ""
-    ) = database.withTransaction {
+    ): Unit = database.withTransaction {
+        // A second tap on "Record paid" before the screen has caught up names the same
+        // installment again. The payment row would simply be replaced, but a second
+        // expense would still be written and the installment taken off the balance twice.
+        if (dao.getPaymentsFor(emi.id).any { it.installmentNumber == installmentNumber }) {
+            return@withTransaction
+        }
+
         dao.insertPayment(
             EmiPaymentEntity(
                 emiId = emi.id,
@@ -90,28 +101,63 @@ class EmiRepository @Inject constructor(
             )
         )
 
-        if (categoryId != null) {
-            expenseDao.insert(
-                Expense(
-                    id = 0,
-                    amount = amount,
-                    description = "${emi.name} installment $installmentNumber",
-                    categoryId = categoryId,
-                    date = paidOn,
-                    paymentMethod = paymentMethod,
-                    linkType = ExpenseLinkType.EMI,
-                    linkId = emi.id,
-                    linkPeriodKey = installmentNumber.toString(),
-                    vehicleId = emi.vehicleId
-                ).toEntity(paidOn)
-            )
-        }
+        // Always written. Without it the installment leaves the forecast, because it is
+        // paid, without ever leaving the balance. The loan's own category wins; a loan
+        // with none is filed under "EMI".
+        expenseDao.insert(
+            Expense(
+                id = 0,
+                amount = amount,
+                description = "${emi.name} installment $installmentNumber",
+                categoryId = defaults.categoryFor(categoryId ?: emi.categoryId, "EMI", emi.name),
+                date = paidOn,
+                paymentMethod = paymentMethod,
+                accountId = accountId ?: defaults.accountFor(paymentMethod),
+                linkType = ExpenseLinkType.EMI,
+                linkId = emi.id,
+                linkPeriodKey = installmentNumber.toString(),
+                vehicleId = emi.vehicleId
+            ).toEntity(paidOn)
+        )
 
         val paidCount = EmiCalculator.paidInstallments(emi, dao.getPaymentsFor(emi.id).map { it.toDomain() })
         if (paidCount >= emi.totalInstallments) {
             dao.update(emi.copy(isActive = false).toEntity())
         }
     }
+
+    /**
+     * Records an expense already in the ledger as the payment of installment [installment].
+     *
+     * The expense already took the money off the balance; linking it stops the forecast
+     * expecting the installment as well. Returns false when it is already paid.
+     */
+    suspend fun settleWithExpense(emi: Emi, installment: Int, expense: Expense): Boolean =
+        database.withTransaction {
+            if (dao.getPaymentsFor(emi.id).any { it.installmentNumber == installment }) {
+                return@withTransaction false
+            }
+            dao.insertPayment(
+                EmiPaymentEntity(
+                    emiId = emi.id,
+                    installmentNumber = installment,
+                    amountPaise = expense.amount.paise,
+                    dueDateEpochDay = EmiCalculator.dueDateFor(emi, installment).toEpochDay(),
+                    paidDateEpochDay = expense.date.toEpochDay(),
+                    notes = ""
+                )
+            )
+            expenseDao.update(
+                expense.copy(
+                    linkType = ExpenseLinkType.EMI,
+                    linkId = emi.id,
+                    linkPeriodKey = installment.toString()
+                ).toEntity()
+            )
+            val paidCount = EmiCalculator.paidInstallments(emi, dao.getPaymentsFor(emi.id).map { it.toDomain() })
+            if (paidCount >= emi.totalInstallments) dao.update(emi.copy(isActive = false).toEntity())
+            true
+        }
 
     /**
      * Undoes an installment payment, reopening the loan if it had been closed.
@@ -138,7 +184,9 @@ class EmiRepository @Inject constructor(
 class CreditCardRepository @Inject constructor(
     private val dao: CreditCardDao,
     private val database: AppDatabase,
-    private val today: TodayProvider
+    private val today: TodayProvider,
+    private val defaults: PaymentDefaults,
+    private val expenseDao: ExpenseDao
 ) {
     val all: Flow<List<CreditCard>> = dao.observeAll().map { list -> list.map { it.toDomain() } }
 
@@ -150,55 +198,158 @@ class CreditCardRepository @Inject constructor(
     fun paymentsFor(cardId: Long): Flow<List<CreditCardPayment>> =
         dao.observePaymentsFor(cardId).map { list -> list.map { it.toDomain() } }
 
-    suspend fun add(card: CreditCard): Long = dao.insert(card.toEntity())
+    suspend fun add(card: CreditCard): Long =
+        dao.insert(card.copy(lastUpdated = card.lastUpdated ?: today.today()).toEntity())
 
-    suspend fun update(card: CreditCard) =
-        dao.update(card.copy(lastUpdated = today.today()).toEntity())
+    /**
+     * Saves the card's own details: its name, limit, billing days and notes.
+     *
+     * The statement figure is left exactly as it was. It changes through [updateStatement]
+     * and through payments, never here, because saving a new name used to stamp the card
+     * as freshly updated, and every purchase made before that day then dropped out of what
+     * the card was said to owe.
+     */
+    suspend fun update(card: CreditCard) = database.withTransaction {
+        val existing = dao.getById(card.id)?.toDomain()
+        dao.update(
+            if (existing == null) {
+                card.toEntity()
+            } else {
+                card.copy(
+                    currentOutstanding = existing.currentOutstanding,
+                    minimumDue = existing.minimumDue,
+                    lastUpdated = existing.lastUpdated,
+                    statementDate = existing.statementDate
+                ).toEntity()
+            }
+        )
+    }
 
     suspend fun delete(id: Long) = dao.deleteById(id)
 
     suspend fun getById(id: Long) = dao.getById(id)?.toDomain()
 
+    suspend fun getPayment(id: Long): CreditCardPayment? = dao.getPayment(id)?.toDomain()
+
     /**
-     * Records a payment towards a card bill and reduces the outstanding by the same
-     * amount, in one transaction. No expense row is created: the cash movement is the
-     * card payment itself, and adding an expense as well would subtract it twice.
+     * Records a payment towards a card bill, and how and from where it was paid.
+     *
+     * No expense row is created: the cash movement is the card payment itself, and adding
+     * an expense as well would subtract it twice. The outstanding comes down by the amount,
+     * and may go below zero: paying the statement and the spending since in one go leaves
+     * the card in credit against the purchases still to be billed, rather than losing the
+     * overpayment as it used to when the figure was floored at zero.
+     *
+     * The date the card was last updated is no longer moved by a payment. It marks where
+     * the statement figure ends, and moving it made every purchase between the statement
+     * and the payment disappear from the card.
      */
     suspend fun payBill(
         card: CreditCard,
         amount: Money,
         paidOn: LocalDate = today.today(),
+        paymentMethod: PaymentMethod = PaymentMethod.BANK_TRANSFER,
         accountId: Long? = null,
         notes: String = ""
-    ) = database.withTransaction {
-        dao.insertPayment(
+    ): Long = database.withTransaction {
+        val method = if (paymentMethod == PaymentMethod.CREDIT_CARD) PaymentMethod.BANK_TRANSFER else paymentMethod
+        val id = dao.insertPayment(
             CreditCardPaymentEntity(
                 cardId = card.id,
                 amountPaise = amount.paise,
                 paidDateEpochDay = paidOn.toEpochDay(),
-                accountId = accountId,
-                notes = notes
+                accountId = accountId ?: defaults.accountFor(method),
+                notes = notes,
+                paymentMethod = method.name
             )
         )
-        val reduced = (card.currentOutstanding - amount).coerceAtLeastZero()
-        dao.update(
-            card.copy(
-                currentOutstanding = reduced,
-                minimumDue = if (reduced.isZero) Money.ZERO else card.minimumDue,
-                lastUpdated = paidOn
-            ).toEntity()
+        val fresh = dao.getById(card.id)?.toDomain() ?: card
+        if (CreditCardCalculator.paymentReducesFigure(fresh, paidOn)) {
+            dao.update(fresh.copy(currentOutstanding = fresh.currentOutstanding - amount).toEntity())
+        }
+        id
+    }
+
+    /**
+     * Corrects a payment already recorded, moving the outstanding by the difference.
+     *
+     * A payment that sits inside the statement on file is already reflected in the bank's
+     * figure, so changing or removing it leaves that figure alone.
+     */
+    suspend fun updatePayment(updated: CreditCardPayment) = database.withTransaction {
+        val old = dao.getPayment(updated.id)?.toDomain() ?: return@withTransaction
+        val method = if (updated.paymentMethod == PaymentMethod.CREDIT_CARD) {
+            PaymentMethod.BANK_TRANSFER
+        } else {
+            updated.paymentMethod
+        }
+        dao.updatePayment(updated.copy(cardId = old.cardId, paymentMethod = method).toEntity())
+        val card = dao.getById(old.cardId)?.toDomain() ?: return@withTransaction
+        var figure = card.currentOutstanding
+        if (CreditCardCalculator.paymentReducesFigure(card, old.paidDate)) figure += old.amount
+        if (CreditCardCalculator.paymentReducesFigure(card, updated.paidDate)) figure -= updated.amount
+        if (figure != card.currentOutstanding) {
+            dao.update(card.copy(currentOutstanding = figure).toEntity())
+        }
+    }
+
+    /**
+     * Turns an expense that was really a card bill payment into one.
+     *
+     * Paying a card is not spending: the purchases were already counted on the card. As an
+     * expense it counted them twice, once on the day of each purchase via the card bill and
+     * again on the day the bill was paid. The expense goes and a card payment takes its
+     * place, with the same amount, date and account, so the bank balance does not move.
+     */
+    suspend fun settleExpenseAsPayment(card: CreditCard, expense: Expense): Long = database.withTransaction {
+        expenseDao.deleteById(expense.id)
+        payBill(
+            card = card,
+            amount = expense.amount,
+            paidOn = expense.date,
+            paymentMethod = expense.paymentMethod,
+            accountId = expense.accountId,
+            notes = expense.description
         )
     }
 
-    /** Lets the user type in the figure from their latest statement. */
-    suspend fun updateOutstanding(card: CreditCard, outstanding: Money, minimumDue: Money) =
+    /** Removes a payment recorded by mistake, putting what it took off the card back on. */
+    suspend fun deletePayment(paymentId: Long) = database.withTransaction {
+        val payment = dao.getPayment(paymentId)?.toDomain() ?: return@withTransaction
+        dao.deletePaymentById(paymentId)
+        val card = dao.getById(payment.cardId)?.toDomain() ?: return@withTransaction
+        if (CreditCardCalculator.paymentReducesFigure(card, payment.paidDate)) {
+            dao.update(card.copy(currentOutstanding = card.currentOutstanding + payment.amount).toEntity())
+        }
+    }
+
+    /**
+     * Copies in a new statement from the bank.
+     *
+     * [amount] is the bank's figure as of [statementOn], which already reflects every
+     * payment made before that date. Payments recorded here since that date have not
+     * reached the bank's figure yet, so they come off it; purchases after it are what the
+     * next statement will hold.
+     */
+    suspend fun updateStatement(
+        card: CreditCard,
+        statementOn: LocalDate,
+        amount: Money,
+        minimumDue: Money
+    ) = database.withTransaction {
+        val paidSince = dao.getPaymentsFor(card.id)
+            .filter { it.paidDateEpochDay > statementOn.toEpochDay() }
+            .sumOf { it.amountPaise }
+        val fresh = dao.getById(card.id)?.toDomain() ?: card
         dao.update(
-            card.copy(
-                currentOutstanding = outstanding,
+            fresh.copy(
+                currentOutstanding = amount - Money(paidSince),
                 minimumDue = minimumDue,
+                statementDate = statementOn,
                 lastUpdated = today.today()
             ).toEntity()
         )
+    }
 }
 
 @Singleton
@@ -206,7 +357,9 @@ class BillRepository @Inject constructor(
     private val dao: BillDao,
     private val expenseDao: ExpenseDao,
     private val database: AppDatabase,
-    private val today: TodayProvider
+    private val today: TodayProvider,
+    private val defaults: PaymentDefaults,
+    private val cardDao: CreditCardDao
 ) {
     val all: Flow<List<RecurringBill>> = dao.observeAll().map { list -> list.map { it.toDomain() } }
 
@@ -232,50 +385,103 @@ class BillRepository @Inject constructor(
      * Variable bills such as electricity are paid at the amount actually billed, which
      * is why the amount is passed in rather than taken from the estimate.
      */
+    /**
+     * Marks the occurrence of [bill] due on [dueDate] as paid, with its expense.
+     *
+     * Which occurrence comes from [BillPeriod]: the month for most bills, the due date
+     * itself for a weekly one. A second call for an occurrence already paid does nothing,
+     * so a double tap cannot take the bill off the balance twice.
+     */
     suspend fun markPaid(
         bill: RecurringBill,
-        month: YearMonth,
-        amount: Money,
         dueDate: LocalDate,
+        amount: Money,
         paidOn: LocalDate = today.today(),
-        notes: String = ""
-    ) = database.withTransaction {
+        notes: String = "",
+        accountId: Long? = null
+    ): Unit = database.withTransaction {
+        val periodKey = BillPeriod.keyFor(bill, dueDate)
+        if (dao.getPayment(bill.id, periodKey) != null) return@withTransaction
+
         dao.insertPayment(
             BillPaymentEntity(
                 billId = bill.id,
-                periodKey = month.periodKey(),
+                periodKey = periodKey,
                 amountPaise = amount.paise,
                 dueDateEpochDay = dueDate.toEpochDay(),
                 paidDateEpochDay = paidOn.toEpochDay(),
                 notes = notes
             )
         )
-        if (bill.categoryId != null) {
-            expenseDao.insert(
-                Expense(
-                    id = 0,
-                    amount = amount,
-                    description = bill.name,
-                    categoryId = bill.categoryId,
-                    date = paidOn,
-                    paymentMethod = bill.paymentMethod,
-                    linkType = ExpenseLinkType.RECURRING_BILL,
-                    linkId = bill.id,
-                    linkPeriodKey = month.periodKey()
-                ).toEntity(paidOn)
-            )
-        }
+
+        // A bill paid on a card goes on the card when there is only one to choose from;
+        // with several, it is left for the user to say which, and shows as unlinked.
+        val onCard = bill.paymentMethod == PaymentMethod.CREDIT_CARD
+        val cardId = if (onCard) cardDao.getAll().filter { it.isActive }.singleOrNull()?.id else null
+
+        // Always written, whatever the bill's category. Without it a bill with "No
+        // category", the editor's default, left the forecast without ever leaving the balance.
+        expenseDao.insert(
+            Expense(
+                id = 0,
+                amount = amount,
+                description = bill.name,
+                categoryId = defaults.categoryFor(bill.categoryId, bill.name),
+                date = paidOn,
+                paymentMethod = bill.paymentMethod,
+                accountId = accountId ?: defaults.accountFor(bill.paymentMethod),
+                creditCardId = cardId,
+                linkType = ExpenseLinkType.RECURRING_BILL,
+                linkId = bill.id,
+                linkPeriodKey = periodKey
+            ).toEntity(paidOn)
+        )
     }
 
     /**
-     * Undoes one period of a bill.
+     * Records an expense already in the ledger as the payment of one occurrence of [bill].
      *
-     * Only the expense for that period is removed. [ExpenseLinkType.RECURRING_BILL] plus
-     * the bill id names the bill, not the payment, so deleting on those two alone would
-     * take every month ever recorded against it.
+     * For a bill paid outside the Bills screen — a bank transfer imported from an SMS, a
+     * rent payment typed in as an ordinary expense. The money has already left the balance
+     * through that expense; what was missing was the payment record, so the forecast kept
+     * expecting the bill and counted it a second time. Returns false when that occurrence
+     * already has a payment, in which case nothing changes.
      */
-    suspend fun undoPayment(billId: Long, month: YearMonth) = database.withTransaction {
-        val periodKey = month.periodKey()
+    suspend fun settleWithExpense(bill: RecurringBill, dueDate: LocalDate, expense: Expense): Boolean =
+        database.withTransaction {
+            val periodKey = BillPeriod.keyFor(bill, dueDate)
+            if (dao.getPayment(bill.id, periodKey) != null) return@withTransaction false
+            dao.insertPayment(
+                BillPaymentEntity(
+                    billId = bill.id,
+                    periodKey = periodKey,
+                    amountPaise = expense.amount.paise,
+                    dueDateEpochDay = dueDate.toEpochDay(),
+                    paidDateEpochDay = expense.date.toEpochDay(),
+                    notes = ""
+                )
+            )
+            expenseDao.update(
+                expense.copy(
+                    linkType = ExpenseLinkType.RECURRING_BILL,
+                    linkId = bill.id,
+                    linkPeriodKey = periodKey
+                ).toEntity()
+            )
+            true
+        }
+
+    /** Undoes one monthly period of a bill. See the overload taking a period key. */
+    suspend fun undoPayment(billId: Long, month: YearMonth) = undoPayment(billId, month.periodKey())
+
+    /**
+     * Undoes one occurrence of a bill.
+     *
+     * Only the expense for that occurrence is removed. [ExpenseLinkType.RECURRING_BILL]
+     * plus the bill id names the bill, not the payment, so deleting on those two alone
+     * would take every month ever recorded against it.
+     */
+    suspend fun undoPayment(billId: Long, periodKey: String) = database.withTransaction {
         val payment = dao.getPayment(billId, periodKey)
         dao.deletePayment(billId, periodKey)
         expenseDao.deleteLinkedPeriod(
@@ -292,7 +498,8 @@ class AnnualExpenseRepository @Inject constructor(
     private val dao: AnnualExpenseDao,
     private val expenseDao: ExpenseDao,
     private val database: AppDatabase,
-    private val today: TodayProvider
+    private val today: TodayProvider,
+    private val defaults: PaymentDefaults
 ) {
     val all: Flow<List<AnnualExpense>> = dao.observeAll().map { list -> list.map { it.toDomain() } }
 
@@ -304,12 +511,22 @@ class AnnualExpenseRepository @Inject constructor(
     suspend fun delete(id: Long) = dao.deleteById(id)
     suspend fun getById(id: Long) = dao.getById(id)?.toDomain()
 
+    /**
+     * Marks one year of a yearly commitment paid, with its expense.
+     *
+     * The expense is always written, whatever the category, and a second call for a year
+     * already paid does nothing, so a double tap cannot count it twice.
+     */
     suspend fun markPaid(
         annual: AnnualExpense,
         year: Int,
         amount: Money,
-        paidOn: LocalDate = today.today()
-    ) = database.withTransaction {
+        paidOn: LocalDate = today.today(),
+        paymentMethod: PaymentMethod = PaymentMethod.UPI,
+        accountId: Long? = null
+    ): Unit = database.withTransaction {
+        if (dao.getPayment(annual.id, year) != null) return@withTransaction
+
         dao.insertPayment(
             AnnualExpensePaymentEntity(
                 annualExpenseId = annual.id,
@@ -318,23 +535,44 @@ class AnnualExpenseRepository @Inject constructor(
                 paidDateEpochDay = paidOn.toEpochDay()
             )
         )
-        if (annual.categoryId != null) {
-            expenseDao.insert(
-                Expense(
-                    id = 0,
-                    amount = amount,
-                    description = annual.name,
-                    categoryId = annual.categoryId,
-                    date = paidOn,
-                    paymentMethod = PaymentMethod.UPI,
+        expenseDao.insert(
+            Expense(
+                id = 0,
+                amount = amount,
+                description = annual.name,
+                categoryId = defaults.categoryFor(annual.categoryId, annual.name),
+                date = paidOn,
+                paymentMethod = paymentMethod,
+                accountId = accountId ?: defaults.accountFor(paymentMethod),
+                linkType = ExpenseLinkType.ANNUAL_EXPENSE,
+                linkId = annual.id,
+                linkPeriodKey = year.toString(),
+                vehicleId = annual.vehicleId
+            ).toEntity(paidOn)
+        )
+    }
+
+    /** Records an expense already in the ledger as one year's payment of [annual]. */
+    suspend fun settleWithExpense(annual: AnnualExpense, year: Int, expense: Expense): Boolean =
+        database.withTransaction {
+            if (dao.getPayment(annual.id, year) != null) return@withTransaction false
+            dao.insertPayment(
+                AnnualExpensePaymentEntity(
+                    annualExpenseId = annual.id,
+                    year = year,
+                    amountPaise = expense.amount.paise,
+                    paidDateEpochDay = expense.date.toEpochDay()
+                )
+            )
+            expenseDao.update(
+                expense.copy(
                     linkType = ExpenseLinkType.ANNUAL_EXPENSE,
                     linkId = annual.id,
-                    linkPeriodKey = year.toString(),
-                    vehicleId = annual.vehicleId
-                ).toEntity(paidOn)
+                    linkPeriodKey = year.toString()
+                ).toEntity()
             )
+            true
         }
-    }
 
     /** Undoes one year of a yearly commitment, leaving every other year untouched. */
     suspend fun undoPayment(id: Long, year: Int) = database.withTransaction {

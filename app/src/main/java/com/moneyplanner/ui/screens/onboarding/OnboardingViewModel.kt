@@ -168,8 +168,18 @@ class OnboardingViewModel @Inject constructor(
                 )
             }
 
-            Money.parseOrNull(form.salaryText)?.takeIf { it.isPositive }?.let { salary ->
-                incomeRepository.addSource(
+            // Each answer is written once. Going back from the review and pressing on again
+            // used to insert Salary, Rent and the loan a second time, so a user who only
+            // wanted to look at a figure again had every commitment counted twice. What
+            // setup created is remembered and updated, or removed if the answer was cleared.
+            val salary = Money.parseOrNull(form.salaryText)?.takeIf { it.isPositive }
+            val salaryId = createdSalaryId
+            when {
+                salary != null && salaryId != null ->
+                    incomeRepository.getSource(salaryId)?.let {
+                        incomeRepository.updateSource(it.copy(amount = salary, dayOfMonth = form.salaryDay))
+                    }
+                salary != null -> createdSalaryId = incomeRepository.addSource(
                     IncomeSource(
                         id = 0,
                         name = "Salary",
@@ -185,61 +195,112 @@ class OnboardingViewModel @Inject constructor(
                         notes = ""
                     )
                 )
+                salaryId != null -> {
+                    incomeRepository.deleteSource(salaryId)
+                    createdSalaryId = null
+                }
             }
 
-            Money.parseOrNull(form.rentText)?.takeIf { it.isPositive }?.let { rent ->
-                val category = categoryRepository.expenseCategories.first()
-                    .firstOrNull { it.name.equals("Rent", ignoreCase = true) }
-                billRepository.add(
-                    RecurringBill(
-                        id = 0,
-                        name = "Rent",
-                        categoryId = category?.id,
-                        amountType = BillAmountType.FIXED,
-                        amount = rent,
-                        minAmount = null,
-                        maxAmount = null,
-                        dueDayOfMonth = 5,
-                        frequency = Frequency.MONTHLY,
-                        startDate = today.today().withDayOfMonth(1),
-                        endDate = null,
-                        paymentMethod = PaymentMethod.UPI,
-                        autoDebit = false,
-                        isEssential = true,
-                        isActive = true,
-                        notes = ""
+            val rent = Money.parseOrNull(form.rentText)?.takeIf { it.isPositive }
+            val rentId = createdRentId
+            when {
+                rent != null && rentId != null ->
+                    billRepository.getById(rentId)?.let { billRepository.update(it.copy(amount = rent)) }
+                rent != null -> {
+                    val category = categoryRepository.expenseCategories.first()
+                        .firstOrNull { it.name.equals("Rent", ignoreCase = true) }
+                    createdRentId = billRepository.add(
+                        RecurringBill(
+                            id = 0,
+                            name = "Rent",
+                            categoryId = category?.id,
+                            amountType = BillAmountType.FIXED,
+                            amount = rent,
+                            minAmount = null,
+                            maxAmount = null,
+                            dueDayOfMonth = 5,
+                            frequency = Frequency.MONTHLY,
+                            startDate = today.today().withDayOfMonth(1),
+                            endDate = null,
+                            paymentMethod = PaymentMethod.UPI,
+                            autoDebit = false,
+                            isEssential = true,
+                            isActive = true,
+                            notes = ""
+                        )
                     )
-                )
+                }
+                rentId != null -> {
+                    billRepository.delete(rentId)
+                    createdRentId = null
+                }
             }
 
             // Recorded as a single combined loan, since asking someone to itemise every
             // EMI before they have seen the app would lose most people at step four. The
             // tenure is a placeholder the user is told to correct on the Plans screen.
-            Money.parseOrNull(form.emiText)?.takeIf { it.isPositive }?.let { emiAmount ->
-                emiRepository.add(
-                    Emi(
-                        id = 0,
-                        name = "Loan installments",
-                        categoryId = null,
-                        principal = Money.ZERO,
-                        emiAmount = emiAmount,
-                        interestRatePercent = null,
-                        startDate = today.today().withDayOfMonth(1),
-                        firstDueDate = today.today().withDayOfMonth(
-                            minOf(5, today.today().lengthOfMonth())
-                        ),
-                        frequency = Frequency.MONTHLY,
-                        totalInstallments = 12,
-                        openingPaidInstallments = 0,
-                        vehicleId = null,
-                        accountReference = "",
-                        autoDebit = false,
-                        isActive = true,
-                        notes = "Added during setup. Open this to set the real tenure and rate."
+            val emiAmount = Money.parseOrNull(form.emiText)?.takeIf { it.isPositive }
+            val loanId = createdLoanId
+            when {
+                emiAmount != null && loanId != null ->
+                    emiRepository.getById(loanId)?.let { emiRepository.update(it.copy(emiAmount = emiAmount)) }
+                emiAmount != null -> {
+                    val emiCategory = categoryRepository.expenseCategories.first()
+                        .firstOrNull { it.name.equals("EMI", ignoreCase = true) }
+                    createdLoanId = emiRepository.add(
+                        Emi(
+                            id = 0,
+                            name = "Loan installments",
+                            categoryId = emiCategory?.id,
+                            principal = Money.ZERO,
+                            emiAmount = emiAmount,
+                            interestRatePercent = null,
+                            startDate = today.today().withDayOfMonth(1),
+                            firstDueDate = today.today().withDayOfMonth(
+                                minOf(5, today.today().lengthOfMonth())
+                            ),
+                            frequency = Frequency.MONTHLY,
+                            totalInstallments = 12,
+                            openingPaidInstallments = 0,
+                            vehicleId = null,
+                            accountReference = "",
+                            autoDebit = false,
+                            isActive = true,
+                            notes = "Added during setup. Open this to set the real tenure and rate."
+                        )
                     )
-                )
+                }
+                loanId != null -> {
+                    emiRepository.delete(loanId)
+                    createdLoanId = null
+                }
             }
+            Unit
+        }
+    }
 
+    /** What setup has already written, so a second pass updates rather than duplicates. */
+    private var createdSalaryId: Long? = null
+    private var createdRentId: Long? = null
+    private var createdLoanId: Long? = null
+
+    /**
+     * The system Back key during setup: one step back, or from the review back to the
+     * questions, instead of closing the app and losing what was typed.
+     */
+    fun back(): Boolean {
+        val current = _state.value
+        return when {
+            current.isSaving -> true
+            current.step >= REVIEW_STEP -> {
+                backToQuestions()
+                true
+            }
+            current.step > 0 -> {
+                _state.update { it.copy(step = it.step - 1) }
+                true
+            }
+            else -> false
         }
     }
 }
