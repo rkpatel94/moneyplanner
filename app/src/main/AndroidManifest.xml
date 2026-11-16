@@ -8,6 +8,19 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- Optional app lock -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!--
+        Reading bank alerts from the SMS inbox. Requested only when the user taps Scan on the
+        import screen, never at start-up; declining leaves pasting, which needs nothing.
+        Distributing through Google Play needs a permissions declaration for it.
+    -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <!--
+        READ_SMS would otherwise make Play assume the app needs a SIM, and hide it from
+        tablets and other phones without telephony, where pasting still works.
+    -->
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
 
     <!-- No INTERNET permission: this app is fully offline by design. -->
 

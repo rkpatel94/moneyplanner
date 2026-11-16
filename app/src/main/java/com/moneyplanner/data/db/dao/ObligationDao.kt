@@ -117,11 +117,23 @@ interface CreditCardDao {
     @Query("SELECT * FROM credit_card_payments")
     suspend fun getAllPayments(): List<CreditCardPaymentEntity>
 
+    @Query("SELECT * FROM credit_card_payments WHERE cardId = :cardId")
+    suspend fun getPaymentsFor(cardId: Long): List<CreditCardPaymentEntity>
+
+    @Query("SELECT * FROM credit_card_payments WHERE id = :id")
+    suspend fun getPayment(id: Long): CreditCardPaymentEntity?
+
     @Insert
     suspend fun insertPayment(payment: CreditCardPaymentEntity): Long
 
+    @Update
+    suspend fun updatePayment(payment: CreditCardPaymentEntity)
+
     @Delete
     suspend fun deletePayment(payment: CreditCardPaymentEntity)
+
+    @Query("DELETE FROM credit_card_payments WHERE id = :id")
+    suspend fun deletePaymentById(id: Long)
 }
 
 @Dao

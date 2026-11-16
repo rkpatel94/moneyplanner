@@ -172,6 +172,10 @@ object BalanceCalculator {
                         adjustments - spent - cardBills - settledOut - transferredOut
                 )
             }
+            // A closed account stays listed for as long as it still holds money. Hiding it
+            // would push that money into "unassigned", and a closed account with nothing
+            // left in it has nothing to say.
+            .filter { !it.account.isArchived || !it.balance.isZero }
             .sortedBy { it.account.sortOrder }
 
         val total = breakdownAsOf(snapshot, asOf).available
@@ -189,8 +193,15 @@ object BalanceCalculator {
         accountBalancesAsOf(snapshot, snapshot.today)
 
     /** Total outstanding across every active credit card. */
+    /**
+     * What every active card really owes today: the statement still to pay plus what has
+     * been charged since. The statement figure alone left out every purchase made after
+     * it, so a card paid off and then spent on again read as owing nothing.
+     */
     fun totalCreditCardOutstanding(snapshot: FinancialSnapshot): Money =
-        snapshot.creditCards.filter { it.isActive }.sumOfMoney { it.currentOutstanding }
+        snapshot.creditCards.filter { it.isActive }.sumOfMoney {
+            CreditCardCalculator.projectedOutstanding(it, snapshot.expenses).coerceAtLeastZero()
+        }
 
     /**
      * Everything the user owns minus everything they owe, including loan balances.

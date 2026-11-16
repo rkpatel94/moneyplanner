@@ -43,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.HorizontalDivider
@@ -943,6 +944,7 @@ private fun iconFor(kind: ForecastItemKind): ImageVector = when (kind) {
     ForecastItemKind.BILL -> Icons.AutoMirrored.Filled.ReceiptLong
     ForecastItemKind.ANNUAL -> Icons.Default.CalendarMonth
     ForecastItemKind.CREDIT_CARD -> Icons.Default.CreditCard
+    ForecastItemKind.PLANNED, ForecastItemKind.PLANNED_IN -> Icons.Default.Event
 }
 
 /**

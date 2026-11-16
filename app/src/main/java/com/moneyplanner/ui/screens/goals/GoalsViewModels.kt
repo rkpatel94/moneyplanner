@@ -106,21 +106,34 @@ class GoalDetailViewModel @Inject constructor(
         _contributionText.value = value
     }
 
+    /** Set while an entry is being written, so a double tap cannot record it twice. */
+    private var writing = false
+
     fun contribute() {
         val amount = Money.parseOrNull(_contributionText.value) ?: return
-        if (!amount.isPositive) return
+        if (!amount.isPositive || writing) return
+        writing = true
         viewModelScope.launch {
-            savingsRepository.contribute(goalId, amount)
-            _contributionText.value = ""
+            try {
+                savingsRepository.contribute(goalId, amount)
+                _contributionText.value = ""
+            } finally {
+                writing = false
+            }
         }
     }
 
     fun withdraw() {
         val amount = Money.parseOrNull(_contributionText.value) ?: return
-        if (!amount.isPositive) return
+        if (!amount.isPositive || writing) return
+        writing = true
         viewModelScope.launch {
-            savingsRepository.withdraw(goalId, amount)
-            _contributionText.value = ""
+            try {
+                savingsRepository.withdraw(goalId, amount)
+                _contributionText.value = ""
+            } finally {
+                writing = false
+            }
         }
     }
 
@@ -337,14 +350,21 @@ class EmergencyFundViewModel @Inject constructor(
         }
     }
 
+    private var writing = false
+
     /** Creates the fund on first use, using the calculated target. */
     fun contribute() {
         val amount = Money.parseOrNull(_contributionText.value) ?: return
-        if (!amount.isPositive) return
+        if (!amount.isPositive || writing) return
+        writing = true
         viewModelScope.launch {
-            val goalId = savingsRepository.ensureEmergencyFund(state.value.status.targetAmount)
-            savingsRepository.contribute(goalId, amount)
-            _contributionText.value = ""
+            try {
+                val goalId = savingsRepository.ensureEmergencyFund(state.value.status.targetAmount)
+                savingsRepository.contribute(goalId, amount)
+                _contributionText.value = ""
+            } finally {
+                writing = false
+            }
         }
     }
 

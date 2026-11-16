@@ -196,11 +196,31 @@ object Migrations {
         }
     }
 
+    /**
+     * Card payments remember how they were paid, and a card remembers which statement its
+     * outstanding figure came from.
+     *
+     * Purely additive. Every payment recorded before this was a bank payment as far as the
+     * app could tell, since the screen never asked, so that is the default; the balance
+     * does not depend on the method. The statement date starts empty, and a card without
+     * one keeps working exactly as before from the date its figure was last changed.
+     */
+    val MIGRATION_6_7 = object : Migration(6, 7) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "ALTER TABLE `credit_card_payments` ADD COLUMN `paymentMethod` TEXT NOT NULL " +
+                    "DEFAULT 'BANK_TRANSFER'"
+            )
+            db.execSQL("ALTER TABLE `credit_cards` ADD COLUMN `statementDateEpochDay` INTEGER")
+        }
+    }
+
     val ALL = arrayOf(
         MIGRATION_1_2,
         MIGRATION_2_3,
         MIGRATION_3_4,
         MIGRATION_4_5,
-        MIGRATION_5_6
+        MIGRATION_5_6,
+        MIGRATION_6_7
     )
 }

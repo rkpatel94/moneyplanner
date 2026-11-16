@@ -90,7 +90,12 @@ data class CreditCardEntity(
     val dueDayOfMonth: Int,
     val isActive: Boolean = true,
     val notes: String = "",
-    val lastUpdatedEpochDay: Long = 0L
+    val lastUpdatedEpochDay: Long = 0L,
+    /**
+     * The date of the statement the outstanding figure was copied from. Added in schema 7
+     * and null on cards whose figure predates it, which fall back to [lastUpdatedEpochDay].
+     */
+    val statementDateEpochDay: Long? = null
 )
 
 /** A payment made towards a credit card bill. */
@@ -112,7 +117,13 @@ data class CreditCardPaymentEntity(
     val amountPaise: Long,
     val paidDateEpochDay: Long,
     val accountId: Long? = null,
-    val notes: String = ""
+    val notes: String = "",
+    /**
+     * How the bill was paid, by [com.moneyplanner.domain.model.PaymentMethod] name. Added in
+     * schema 7; payments recorded before that were all bank payments in practice and are
+     * migrated as such.
+     */
+    val paymentMethod: String = "BANK_TRANSFER"
 )
 
 /**

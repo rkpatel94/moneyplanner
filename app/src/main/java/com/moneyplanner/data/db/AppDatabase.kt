@@ -79,7 +79,7 @@ import com.moneyplanner.data.db.entity.TagEntity
         SavingsContributionEntity::class,
         BudgetEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {

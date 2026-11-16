@@ -172,7 +172,8 @@ fun AccountsScreen(
                     AccountCard(
                         row = row,
                         onEdit = { viewModel.startEditing(row.account) },
-                        onArchive = { archiving = row.account }
+                        onArchive = { archiving = row.account },
+                        onReopen = { viewModel.reopen(row.account) }
                     )
                 }
             }
@@ -211,7 +212,12 @@ fun AccountsScreen(
                                 money = transfer.amount,
                                 style = MaterialTheme.typography.titleMedium
                             )
-                            IconButton(onClick = { viewModel.deleteTransfer(transfer.id) }) {
+                            val askDeleteTransfer = com.moneyplanner.ui.components.rememberDeleteConfirmation(
+                                title = "Delete this transfer?",
+                                message = "The money goes back to the account it came from.",
+                                onConfirm = { viewModel.deleteTransfer(transfer.id) }
+                            )
+                            IconButton(onClick = askDeleteTransfer) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete transfer")
                             }
                         }
@@ -234,10 +240,17 @@ fun AccountsScreen(
     }
 
     archiving?.let { account ->
+        val holding = state.balances?.rows?.firstOrNull { it.account.id == account.id }?.balance
         ConfirmDialog(
             title = "Close ${account.name}?",
             message = "It stops appearing when you record something new. Everything already " +
-                "recorded against it is kept, so your history and your balances stay right.",
+                "recorded against it is kept, so your history and your balances stay right." +
+                if (holding != null && !holding.isZero) {
+                    " It still holds ${IndianFormat.format(holding)}, so it stays listed " +
+                        "here until that is moved to another account."
+                } else {
+                    ""
+                },
             confirmLabel = "Close account",
             onConfirm = { viewModel.archive(account) },
             onDismiss = { archiving = null }
@@ -249,14 +262,16 @@ fun AccountsScreen(
 private fun AccountCard(
     row: AccountBalance,
     onEdit: () -> Unit,
-    onArchive: () -> Unit
+    onArchive: () -> Unit,
+    onReopen: () -> Unit
 ) {
     SectionCard {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(row.account.name, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    row.account.type.label,
+                    if (row.account.isArchived) "${row.account.type.label} · closed"
+                    else row.account.type.label,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -332,8 +347,14 @@ private fun AccountCard(
                 Spacer(Modifier.height(0.dp))
                 Text(" Edit")
             }
-            OutlinedButton(onClick = onArchive, modifier = Modifier.weight(1f)) {
-                Text("Close")
+            if (row.account.isArchived) {
+                OutlinedButton(onClick = onReopen, modifier = Modifier.weight(1f)) {
+                    Text("Reopen")
+                }
+            } else {
+                OutlinedButton(onClick = onArchive, modifier = Modifier.weight(1f)) {
+                    Text("Close")
+                }
             }
         }
     }

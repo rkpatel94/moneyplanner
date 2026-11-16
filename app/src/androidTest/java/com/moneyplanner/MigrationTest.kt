@@ -211,8 +211,39 @@ class MigrationTest {
      * migrations unreplayed, which is how the 4 to 5 and 5 to 6 steps went untested here.
      */
     @Test
+    fun migratingToSevenKeepsCardsAndTheirPaymentsAsTheyWere() {
+        helper.createDatabase(TEST_DB, 6).use { db ->
+            db.execSQL(
+                "INSERT INTO credit_cards (id, name, bank, lastFourDigits, creditLimitPaise, " +
+                    "currentOutstandingPaise, minimumDuePaise, statementDayOfMonth, dueDayOfMonth, " +
+                    "isActive, notes, lastUpdatedEpochDay) " +
+                    "VALUES (1, 'Regalia', 'HDFC', '1234', 20000000, 1500000, 75000, 15, 4, 1, '', 20400)"
+            )
+            db.execSQL(
+                "INSERT INTO credit_card_payments (id, cardId, amountPaise, paidDateEpochDay, " +
+                    "accountId, notes) VALUES (9, 1, 500000, 20401, NULL, '')"
+            )
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 7, true, Migrations.MIGRATION_6_7)
+
+        db.query("SELECT currentOutstandingPaise, lastUpdatedEpochDay, statementDateEpochDay FROM credit_cards WHERE id = 1")
+            .use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("the outstanding figure is untouched", 1_500_000L, cursor.getLong(0))
+                assertEquals(20_400L, cursor.getLong(1))
+                assertTrue("an existing card has no statement date yet", cursor.isNull(2))
+            }
+        db.query("SELECT amountPaise, paymentMethod FROM credit_card_payments WHERE id = 9").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(500_000L, cursor.getLong(0))
+            assertEquals("earlier payments are bank payments", "BANK_TRANSFER", cursor.getString(1))
+        }
+    }
+
+    @Test
     fun migratesAllTheWayFromOne() {
         helper.createDatabase(TEST_DB, 1).close()
-        helper.runMigrationsAndValidate(TEST_DB, 6, true, *Migrations.ALL)
+        helper.runMigrationsAndValidate(TEST_DB, 7, true, *Migrations.ALL)
     }
 }

@@ -233,6 +233,8 @@ class PersonDetailViewModel @Inject constructor(
      * real thing that happens, and the allocator already reports it instead of absorbing
      * it. The form only warns, so the user can see it before deciding.
      */
+    private var savingSettlement = false
+
     fun saveSettlement() {
         val current = _settleForm.value
         val amount = Money.parseOrNull(current.amountText)
@@ -240,6 +242,9 @@ class PersonDetailViewModel @Inject constructor(
             _settleForm.update { it.copy(error = "Enter an amount greater than zero") }
             return
         }
+        // A second tap while the first is writing would record the payment twice.
+        if (savingSettlement) return
+        savingSettlement = true
         viewModelScope.launch {
             val settlement = Settlement(
                 id = current.editingId ?: 0,
@@ -251,12 +256,16 @@ class PersonDetailViewModel @Inject constructor(
                 accountId = current.accountId,
                 notes = current.notes.trim()
             )
-            if (current.editingId != null) {
-                peopleRepository.updateSettlement(settlement)
-            } else {
-                peopleRepository.addSettlement(settlement)
+            try {
+                if (current.editingId != null) {
+                    peopleRepository.updateSettlement(settlement)
+                } else {
+                    peopleRepository.addSettlement(settlement)
+                }
+                _settleForm.value = SettleForm()
+            } finally {
+                savingSettlement = false
             }
-            _settleForm.value = SettleForm()
         }
     }
 
@@ -302,12 +311,17 @@ class AddPersonViewModel @Inject constructor(
     fun updatePhone(value: String) = _form.update { it.copy(phone = value) }
     fun updateNotes(value: String) = _form.update { it.copy(notes = value) }
 
+    private var saving = false
+
     fun save(onSaved: (Long) -> Unit) {
         val current = _form.value
         if (current.name.isBlank()) {
             _form.update { it.copy(nameError = "Enter a name") }
             return
         }
+        // One person per tap: a double tap made two, and popped one screen too many.
+        if (saving) return
+        saving = true
         viewModelScope.launch {
             val id = peopleRepository.addPerson(
                 current.name, current.relation, current.phone, current.notes
@@ -422,13 +436,21 @@ class SharedExpenseViewModel @Inject constructor(
     fun updateSplitType(value: SplitType) = _form.update { it.copy(splitType = value) }
     fun updatePaidBy(value: Long?) = _form.update { it.copy(paidByPersonId = value) }
 
+    /** Who bears the whole cost under "One person pays all"; null is the user. */
+    fun updateFullPayer(value: Long?) = _form.update { it.copy(fullPayerId = value) }
+
     fun toggleParticipant(personId: Long) = _form.update { current ->
-        val updated = if (personId in current.participantIds) {
+        val removing = personId in current.participantIds
+        val updated = if (removing) {
             current.participantIds - personId
         } else {
             current.participantIds + personId
         }
-        current.copy(participantIds = updated)
+        // Somebody taken off the bill can no longer be the one who bears all of it.
+        current.copy(
+            participantIds = updated,
+            fullPayerId = if (removing && current.fullPayerId == personId) null else current.fullPayerId
+        )
     }
 
     fun updateExactAmount(personId: Long?, value: String) = _form.update { current ->
@@ -481,6 +503,8 @@ class SharedExpenseViewModel @Inject constructor(
         )
     }
 
+    private var savingShared = false
+
     fun save(onSaved: () -> Unit) {
         val current = _form.value
         val total = Money.parseOrNull(current.amountText)
@@ -518,6 +542,8 @@ class SharedExpenseViewModel @Inject constructor(
             }
         }
 
+        if (savingShared) return
+        savingShared = true
         viewModelScope.launch {
             peopleRepository.saveSharedExpense(
                 description = current.description.ifBlank { "Shared expense" },

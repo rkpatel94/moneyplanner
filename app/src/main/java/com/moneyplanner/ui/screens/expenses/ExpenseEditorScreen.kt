@@ -478,7 +478,9 @@ fun ExpenseEditorScreen(
         ConfirmDialog(
             title = "Delete this expense?",
             message = "It will be removed from your records and your balance will be " +
-                "recalculated without it.",
+                "recalculated without it." +
+                com.moneyplanner.data.repo.RecordRemover.consequenceOf(form.linkType)
+                    ?.let { " $it" }.orEmpty(),
             onConfirm = { viewModel.delete(onBack) },
             onDismiss = { showDeleteDialog = false }
         )

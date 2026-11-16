@@ -69,13 +69,16 @@ class SearchViewModel @Inject constructor(
         val matchingPeople = snapshot.people.filter { it.name.lowercase().contains(needle) }
         val matchingPersonIds = matchingPeople.map { it.id }.toSet()
 
-        val expenses = snapshot.expenses
+        val matches = snapshot.expenses
             .filter { expense ->
                 expense.description.lowercase().contains(needle) ||
                     expense.notes.lowercase().contains(needle) ||
                     expense.categoryId in matchingCategoryIds ||
                     expense.personId in matchingPersonIds
             }
+        // Only the newest 60 are listed, but the total is of every match: it used to add up
+        // just the listed ones, so a search over a long history understated what it found.
+        val expenses = matches
             .sortedByDescending { it.date }
             .take(60)
             .map { expense ->
@@ -92,7 +95,7 @@ class SearchViewModel @Inject constructor(
 
         SearchState(
             expenses = expenses,
-            expenseTotal = expenses.sumOfMoney { it.expense.amount },
+            expenseTotal = matches.sumOfMoney { it.amount },
             people = balances,
             emis = snapshot.emis.filter { it.name.lowercase().contains(needle) },
             bills = snapshot.bills.filter { it.name.lowercase().contains(needle) },

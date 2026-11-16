@@ -19,7 +19,9 @@ import com.moneyplanner.data.prefs.ThemeMode
 import com.moneyplanner.data.repo.CategoryRemoval
 import com.moneyplanner.data.repo.CategoryRepository
 import com.moneyplanner.data.repo.ProfileRepository
+import com.moneyplanner.data.repo.ResetOutcome
 import com.moneyplanner.data.repo.ResetRepository
+import com.moneyplanner.data.repo.ResetStep
 import com.moneyplanner.data.repo.SnapshotRepository
 import com.moneyplanner.data.repo.TodayProvider
 import com.moneyplanner.domain.calc.BalanceCalculator
@@ -39,6 +41,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -59,6 +62,7 @@ class SettingsViewModel @Inject constructor(
     private val autoBackupManager: AutoBackupManager,
     private val autoBackupScheduler: AutoBackupScheduler,
     private val resetRepository: ResetRepository,
+    private val ledgerRepair: com.moneyplanner.data.repo.LedgerRepair,
     private val today: TodayProvider,
     snapshotRepository: SnapshotRepository,
     @DefaultDispatcher private val computation: CoroutineDispatcher
@@ -84,7 +88,11 @@ class SettingsViewModel @Inject constructor(
                     snapshot.emiPayments.size +
                     snapshot.billPayments.size +
                     snapshot.contributions.size,
-                today = snapshot.today
+                today = snapshot.today,
+                // A failure of the weekly copy is reported on its own, so a backup file made
+                // by hand since then cannot make the status look healthy while it is not.
+                autoBackupFailedEpochDay = settings.autoBackupFailedEpochDay,
+                autoBackupFailureReason = settings.autoBackupFailureReason
             ),
             isLoading = false
         )
@@ -145,11 +153,18 @@ class SettingsViewModel @Inject constructor(
 
     // ---- Notifications ----------------------------------------------------------
 
+    /**
+     * Turning reminders on replaces whatever check is queued, so the first one arrives at
+     * the hour shown on the screen rather than at one chosen before they were turned off.
+     *
+     * The hour is read back from the store rather than from [state], which only follows the
+     * store while the screen is collecting it and can lag behind a write made a moment ago.
+     */
     fun setRemindersEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsStore.setReminders(enabled = enabled)
             if (enabled) {
-                reminderScheduler.scheduleDailyCheck(state.value.settings.reminderHour)
+                reminderScheduler.scheduleDailyCheck(settingsStore.settings.first().reminderHour)
             } else {
                 reminderScheduler.cancel()
             }
@@ -175,7 +190,8 @@ class SettingsViewModel @Inject constructor(
                 people = people,
                 weeklySummary = weeklySummary
             )
-            if (hour != null && state.value.settings.remindersEnabled) {
+            // A new hour replaces the check already queued, which was timed for the old one.
+            if (hour != null && settingsStore.settings.first().remindersEnabled) {
                 reminderScheduler.scheduleDailyCheck(hour)
             }
         }
@@ -214,6 +230,10 @@ class SettingsViewModel @Inject constructor(
      * know, exactly as it is for an automatic copy written to a folder that might later be
      * deleted. What is certain is that a backup was made, and saying so is closer to true
      * than telling somebody who backs up weekly that they never have.
+     *
+     * It records the run and nothing more. A failed backup to the chosen folder stays on
+     * record, because a file shared by hand does nothing to fix the folder, and clearing the
+     * failure here would hide that the weekly copy has stopped.
      */
     fun exportBackup() {
         viewModelScope.launch {
@@ -250,14 +270,15 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Imports what it can and says how much: rows that cannot be read are skipped and
+     * counted rather than abandoning the whole file, so the message is the only place the
+     * user learns that some of their rows did not come in.
+     */
     fun importCsv(uri: Uri) {
         viewModelScope.launch {
-            _events.value = when (val result = csvExpenseImporter.import(uri)) {
-                is CsvImportResult.Success -> SettingsEvent.Message(
-                    "Imported ${result.imported} expenses" + if (result.skipped == 0) "." else "; skipped ${result.skipped} invalid rows."
-                )
-                is CsvImportResult.Failure -> SettingsEvent.Message(result.message)
-            }
+            val result: CsvImportResult = csvExpenseImporter.import(uri)
+            _events.value = SettingsEvent.Message(result.message())
         }
     }
 
@@ -350,8 +371,13 @@ class SettingsViewModel @Inject constructor(
         _restorePreview.value = null
         viewModelScope.launch {
             _events.value = when (val result = backupManager.importJson(pending.uri)) {
-                is RestoreResult.Success ->
+                is RestoreResult.Success -> {
+                    // A backup written by an older version can hold payments that never
+                    // came off the balance. The same repair that ran on upgrade runs on
+                    // what was just restored; it only writes what is missing.
+                    runCatching { ledgerRepair.restoreMissingPaymentExpenses() }
                     SettingsEvent.Message("Your backup has been restored.")
+                }
                 is RestoreResult.Failure -> SettingsEvent.Message(result.message)
             }
         }
@@ -364,11 +390,15 @@ class SettingsViewModel @Inject constructor(
      *
      * Taking the persistable grant is what lets a background job write there days later
      * without the app ever holding a storage permission.
+     *
+     * A failure recorded against the previous folder is forgotten: it was about a folder
+     * that is no longer the one in use, and the new one has not been tried yet.
      */
     fun setBackupFolder(uri: Uri) {
         viewModelScope.launch {
             autoBackupManager.persistFolderAccess(uri)
             settingsStore.setBackupFolder(uri.toString())
+            settingsStore.clearAutoBackupFailure()
             settingsStore.setAutoBackupEnabled(true)
             autoBackupScheduler.schedule()
             _events.value = SettingsEvent.Message("Automatic backup is on.")
@@ -400,29 +430,69 @@ class SettingsViewModel @Inject constructor(
      * The flag is held across the call so the dialog can disable its own buttons: a second
      * tap part-way through would start a second wipe against a database the first is still
      * clearing.
+     *
+     * The message says what actually happened. Every failure used to be reported as
+     * "nothing was deleted", which is only true when the wipe itself fails. The wipe commits
+     * as one transaction before anything else runs, so a later step that throws, putting
+     * the starting categories back or clearing the settings, comes too late to bring a
+     * record back, and telling someone their data is safe when it is gone is the worst
+     * thing this screen could say.
      */
-    fun performReset(mode: com.moneyplanner.ui.screens.settings.ResetMode) {
+    fun performReset(mode: ResetMode) {
         viewModelScope.launch {
             _isResetting.value = true
-            runCatching {
-                if (mode == com.moneyplanner.ui.screens.settings.ResetMode.RECORDS) {
+            try {
+                val outcome = if (mode == ResetMode.RECORDS) {
                     resetRepository.resetRecords()
                 } else {
                     resetRepository.factoryReset()
                 }
-            }.onSuccess {
-                _events.value = SettingsEvent.Message(
-                    if (mode == com.moneyplanner.ui.screens.settings.ResetMode.RECORDS) {
-                        "Your records have been cleared."
-                    } else {
-                        "The app has been reset."
-                    }
-                )
-            }.onFailure {
-                _events.value = SettingsEvent.Message("Nothing was deleted — the reset failed.")
+                if (mode == ResetMode.EVERYTHING && outcome != ResetOutcome.NothingDeleted) {
+                    realignScheduledWork()
+                }
+                _events.value = SettingsEvent.Message(resetMessage(mode, outcome))
+            } finally {
+                _isResetting.value = false
             }
-            _isResetting.value = false
         }
+    }
+
+    /**
+     * Brings the scheduled work into line with the settings a factory reset leaves.
+     *
+     * App launch and boot keep whatever schedule they find, so nothing else would move the
+     * reminders off the hour chosen before the reset, and the weekly backup would go on
+     * waking up for a folder the app no longer knows about. The settings are read back
+     * rather than assumed to be the defaults, so a reset that could not clear them leaves
+     * the schedule matching what is really stored.
+     */
+    private suspend fun realignScheduledWork() {
+        runCatching {
+            val settings = settingsStore.settings.first()
+            if (settings.remindersEnabled) {
+                reminderScheduler.scheduleDailyCheck(settings.reminderHour)
+            } else {
+                reminderScheduler.cancel()
+            }
+            if (!settings.canAutoBackup) autoBackupScheduler.cancel()
+        }
+    }
+
+    private fun resetMessage(mode: ResetMode, outcome: ResetOutcome): String = when (outcome) {
+        ResetOutcome.Done ->
+            if (mode == ResetMode.RECORDS) "Your records have been cleared." else "The app has been reset."
+        ResetOutcome.NothingDeleted -> "Nothing was deleted — the reset failed."
+        is ResetOutcome.Unfinished ->
+            "Your records were deleted, but " +
+                outcome.steps.joinToString(" and ") { step ->
+                    when (step) {
+                        ResetStep.EXPORT_FILES -> "files left by earlier exports could not be removed"
+                        ResetStep.SETTINGS -> "your settings could not be cleared"
+                        ResetStep.STARTING_DATA ->
+                            "the starting categories and accounts could not be put back"
+                    }
+                } +
+                ". Run the reset again to finish it."
     }
 }
 

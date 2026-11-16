@@ -138,6 +138,10 @@ fun AssistantScreen(
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                             imeAction = ImeAction.Send
                         ),
+                        // The keyboard offered Send and did nothing with it.
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onSend = { viewModel.askCurrentInput() }
+                        ),
                         trailingIcon = {
                             if (voiceAvailable) {
                                 IconButton(

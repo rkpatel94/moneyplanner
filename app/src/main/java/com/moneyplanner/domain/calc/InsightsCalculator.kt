@@ -101,11 +101,15 @@ object InsightsCalculator {
         snapshot.creditCards
             .filter { it.isActive && it.creditLimit.isPositive }
             .mapNotNull { card ->
-                if (card.utilisation < HIGH_UTILISATION) return@mapNotNull null
+                // Spending since the statement counts against the limit as much as the
+                // statement does, so it counts here too.
+                val utilisation = CreditCardCalculator.projectedUtilisation(card, snapshot.expenses)
+                if (utilisation < HIGH_UTILISATION) return@mapNotNull null
+                val owed = CreditCardCalculator.projectedOutstanding(card, snapshot.expenses)
                 Insight(
                     kind = InsightKind.CARD_UTILISATION,
-                    title = "${card.name} is ${(card.utilisation * 100).toInt()}% used",
-                    detail = "${IndianFormat.format(card.currentOutstanding)} of " +
+                    title = "${card.name} is ${(utilisation * 100).toInt()}% used",
+                    detail = "${IndianFormat.format(owed)} of " +
                         "${IndianFormat.format(card.creditLimit)}.",
                     priority = 75
                 )

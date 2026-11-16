@@ -7,6 +7,7 @@ import com.moneyplanner.core.time.periodKey
 import com.moneyplanner.domain.model.FinancialSnapshot
 import com.moneyplanner.domain.model.IncomeSource
 import com.moneyplanner.domain.model.LedgerDirection
+import com.moneyplanner.domain.model.SettlementDirection
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.temporal.ChronoUnit
@@ -109,6 +110,7 @@ object ForecastCalculator {
         items += billItems(snapshot, month)
         items += annualItems(snapshot, month)
         items += creditCardItems(snapshot, month)
+        items += recordedInAdvanceItems(snapshot, month)
 
         val ordered = items.sortedWith(compareBy({ it.date }, { it.kind.ordinal }))
 
@@ -122,6 +124,8 @@ object ForecastCalculator {
         val annualOutflow = sumOf(ForecastItemKind.ANNUAL)
         val cardOutflow = sumOf(ForecastItemKind.CREDIT_CARD)
         val owedOutflow = sumOf(ForecastItemKind.PERSON_OUTGOING)
+        val plannedOut = sumOf(ForecastItemKind.PLANNED)
+        val plannedIn = sumOf(ForecastItemKind.PLANNED_IN)
 
         val estimatedEveryday = estimateEverydaySpend(
             snapshot, month, isCurrentMonth, averageMonthlySpend, averageDailySpend
@@ -153,8 +157,83 @@ object ForecastCalculator {
             actualSpendSoFar = actualSpend,
             isCurrentMonth = isCurrentMonth,
             isProjectionBasedOnHistory = averageMonthlySpend.isPositive,
-            items = ordered
+            items = ordered,
+            plannedOutflow = plannedOut,
+            plannedInflow = plannedIn
         )
+    }
+
+    // ---- Recorded in advance --------------------------------------------------------
+
+    /**
+     * Money the user has already recorded with a date still to come.
+     *
+     * Anything dated after today is left out of today's balance, which is right: it has
+     * not happened yet. It used to be left out of the forecast as well, so a ₹50,000
+     * purchase entered for the 25th was in neither, and the month was projected ₹50,000
+     * better than it would be until the morning it landed. Future-dated income was
+     * already handled with the income; this covers the rest of what moves cash.
+     *
+     * A card purchase is excluded: it moves no cash, and its bill is projected with the card.
+     */
+    private fun recordedInAdvanceItems(
+        snapshot: FinancialSnapshot,
+        month: YearMonth
+    ): List<ForecastItem> {
+        val today = snapshot.today
+        fun ahead(date: LocalDate) = date.isAfter(today) && YearMonth.from(date) == month
+        val items = mutableListOf<ForecastItem>()
+
+        snapshot.expenses
+            .filter { it.movesCash && ahead(it.date) }
+            .forEach { expense ->
+                items += ForecastItem(
+                    date = expense.date,
+                    title = expense.description.ifBlank {
+                        snapshot.categoriesById[expense.categoryId]?.name ?: "Expense"
+                    },
+                    subtitle = "Recorded in advance",
+                    amount = expense.amount,
+                    kind = ForecastItemKind.PLANNED,
+                    sourceId = expense.id,
+                    isEstimate = false,
+                    isRecorded = true
+                )
+            }
+
+        snapshot.creditCardPayments
+            .filter { ahead(it.paidDate) }
+            .forEach { payment ->
+                items += ForecastItem(
+                    date = payment.paidDate,
+                    title = snapshot.creditCards.firstOrNull { it.id == payment.cardId }?.name
+                        ?: "Card payment",
+                    subtitle = "Card payment recorded in advance",
+                    amount = payment.amount,
+                    kind = ForecastItemKind.PLANNED,
+                    sourceId = payment.cardId,
+                    isEstimate = false,
+                    isRecorded = true
+                )
+            }
+
+        snapshot.settlements
+            .filter { ahead(it.date) }
+            .forEach { settlement ->
+                val received = settlement.direction == SettlementDirection.RECEIVED_FROM_THEM
+                items += ForecastItem(
+                    date = settlement.date,
+                    title = snapshot.peopleById[settlement.personId]?.name ?: "Someone",
+                    subtitle = if (received) "Repayment recorded in advance" else "Payment recorded in advance",
+                    amount = settlement.amount,
+                    kind = if (received) ForecastItemKind.PLANNED_IN else ForecastItemKind.PLANNED,
+                    sourceId = settlement.personId,
+                    isEstimate = false,
+                    isRecorded = true
+                )
+            }
+
+        return items
     }
 
     // ---- Income ------------------------------------------------------------------
@@ -219,7 +298,8 @@ object ForecastCalculator {
                     amount = transaction.amount,
                     kind = ForecastItemKind.INCOME,
                     sourceId = transaction.sourceId,
-                    isEstimate = false
+                    isEstimate = false,
+                    isRecorded = true
                 )
             }
 
@@ -335,12 +415,13 @@ object ForecastCalculator {
         return snapshot.bills
             .filter { it.isActive }
             .flatMap { bill ->
-                val alreadyPaid = (bill.id to month.periodKey()) in paidKeys
-                if (alreadyPaid) return@flatMap emptyList()
-
+                // Paid occurrence by occurrence: a weekly bill falls due several times a
+                // month, and paying one week must leave the others in the projection.
                 RecurrenceCalculator.occurrencesIn(
                     month, bill.startDate, bill.endDate, bill.dueDayOfMonth, bill.frequency
-                ).map { date ->
+                ).filterNot { date ->
+                    BillPeriod.isPaid(bill, date, paidKeys)
+                }.map { date ->
                     ForecastItem(
                         date = date,
                         title = bill.name,
@@ -379,18 +460,23 @@ object ForecastCalculator {
     }
 
     /**
-     * The card bill, projected once against what the card actually has on it.
+     * Card bills, each on the date it is really due.
      *
-     * That is the statement figure the user entered plus anything charged to the card
-     * since. Both are already recorded, so counting them is not a guess: the bill the bank
-     * sends will contain them. What is still not projected is *future* card spending,
-     * because the app has no way of knowing it and inventing a figure would be a guess
-     * presented as a fact.
+     * The statement already issued is due on its own due date, and that is where what is
+     * left of it goes. Spending since then lands on the statement that will contain it and
+     * is due after that one. Both were booked together on the due date of the cycle still
+     * open, a month late for the statement, so the forecast showed the bill a month after
+     * it was due and no reminder ever came within reach of it.
+     *
+     * Everything here is already recorded, statement figure and purchases alike; future
+     * card spending is still not projected, because the app has no way of knowing it. A
+     * credit on the card comes off the next bills before anything is projected.
      *
      * There is no double count. A card purchase never reduced cash on its own day, so the
      * only place it leaves the balance is here, when the bill is paid.
      *
-     * It is placed on the due date of the cycle now open and not repeated afterwards.
+     * A bill whose due date has passed unpaid is carried to today and marked overdue,
+     * rather than left in a month the projection no longer covers.
      */
     private fun creditCardItems(
         snapshot: FinancialSnapshot,
@@ -398,29 +484,52 @@ object ForecastCalculator {
     ): List<ForecastItem> =
         snapshot.creditCards
             .filter { it.isActive }
-            .mapNotNull { card ->
-                val owed = CreditCardCalculator.projectedOutstanding(card, snapshot.expenses)
-                if (!owed.isPositive) return@mapNotNull null
+            .flatMap { card ->
+                val today = snapshot.today
+                val items = mutableListOf<ForecastItem>()
+                fun place(dueOn: LocalDate, amount: Money, subtitle: String, isEstimate: Boolean) {
+                    val overdue = dueOn.isBefore(today)
+                    val effective = maxOf(dueOn, today)
+                    if (YearMonth.from(effective) != month) return
+                    items += ForecastItem(
+                        date = effective,
+                        title = card.name,
+                        subtitle = subtitle,
+                        amount = amount,
+                        kind = ForecastItemKind.CREDIT_CARD,
+                        isOverdue = overdue,
+                        originallyDue = dueOn.takeIf { overdue },
+                        sourceId = card.id,
+                        isEstimate = isEstimate
+                    )
+                }
 
-                val dueOn = CreditCardCalculator.currentCycle(card, snapshot.today).dueOn
-                if (YearMonth.from(dueOn) != month) return@mapNotNull null
+                val bill = CreditCardCalculator.statementBill(card, snapshot.creditCardPayments, today)
+                if (bill.remaining.isPositive) {
+                    place(bill.dueOn, bill.remaining, "Card bill", isEstimate = false)
+                }
 
-                val unbilled = CreditCardCalculator.unbilledSpendOn(card, snapshot.expenses)
-
-                ForecastItem(
-                    date = dueOn,
-                    title = card.name,
-                    subtitle = if (unbilled.isPositive) {
-                        "Credit card due, including spending since your statement"
-                    } else {
-                        "Credit card due"
-                    },
-                    amount = owed,
-                    kind = ForecastItemKind.CREDIT_CARD,
-                    isOverdue = dueOn.isBefore(snapshot.today),
-                    sourceId = card.id,
-                    isEstimate = false
-                )
+                var credit = (-card.currentOutstanding).coerceAtLeastZero()
+                CreditCardCalculator.upcomingBills(card, snapshot.expenses).forEach { upcoming ->
+                    val offset = minOf(credit, upcoming.amount)
+                    credit -= offset
+                    val amount = upcoming.amount - offset
+                    if (amount.isPositive) {
+                        // The purchases are recorded, but the bank may add to them, and a
+                        // statement not yet entered is the app's figure, not the bank's.
+                        place(
+                            dueOn = upcoming.dueOn,
+                            amount = amount,
+                            subtitle = if (upcoming.dueOn.isBefore(today)) {
+                                "Card bill from recorded spending, statement not entered"
+                            } else {
+                                "Next card bill, from spending so far"
+                            },
+                            isEstimate = true
+                        )
+                    }
+                }
+                items
             }
 
     // ---- Everyday spending --------------------------------------------------------
@@ -458,7 +567,11 @@ enum class ForecastItemKind(val label: String, val isInflow: Boolean) {
     BILL("Bill", false),
     ANNUAL("Yearly expense", false),
     CREDIT_CARD("Credit card", false),
-    PERSON_OUTGOING("Money to repay", false)
+    PERSON_OUTGOING("Money to repay", false),
+    /** Spending, a card payment or a repayment the user has already entered for a later date. */
+    PLANNED("Recorded in advance", false),
+    /** A repayment to the user, entered for a later date. */
+    PLANNED_IN("Recorded in advance", true)
 }
 
 /** A single dated line in the projection. Also drives the calendar and the reminders. */
@@ -487,7 +600,12 @@ data class ForecastItem(
      * after a bill that went overdue yesterday, because both are judged by a date that
      * says today, and the longest-standing debt is the one pushed out of sight.
      */
-    val originallyDue: LocalDate? = null
+    val originallyDue: LocalDate? = null,
+    /**
+     * True when this line is a record the user has already entered for a later date, rather
+     * than something a schedule expects. Screens that list records themselves skip these.
+     */
+    val isRecorded: Boolean = false
 ) {
     val isInflow: Boolean get() = kind.isInflow
     val signedAmount: Money get() = if (isInflow) amount else -amount
@@ -520,13 +638,18 @@ data class MonthForecast(
     val isCurrentMonth: Boolean,
     /** False when there is not enough history yet for the everyday spending estimate. */
     val isProjectionBasedOnHistory: Boolean,
-    val items: List<ForecastItem>
+    val items: List<ForecastItem>,
+    /** Money already recorded for a later date in this month, going out. */
+    val plannedOutflow: Money = Money.ZERO,
+    /** Money already recorded for a later date in this month, coming in. */
+    val plannedInflow: Money = Money.ZERO
 ) {
-    val totalInflow: Money get() = expectedIncome + expectedIncomingFromPeople
+    val totalInflow: Money get() = expectedIncome + expectedIncomingFromPeople + plannedInflow
 
     /** Payments that are already committed, before everyday spending. */
     val committedOutflow: Money
-        get() = emiOutflow + billsOutflow + annualOutflow + creditCardOutflow + owedToPeopleOutflow
+        get() = emiOutflow + billsOutflow + annualOutflow + creditCardOutflow +
+            owedToPeopleOutflow + plannedOutflow
 
     val totalOutflow: Money get() = committedOutflow + estimatedEverydaySpend
 

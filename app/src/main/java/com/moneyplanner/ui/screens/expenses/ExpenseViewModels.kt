@@ -55,6 +55,7 @@ import javax.inject.Inject
 @HiltViewModel
 class TransactionsViewModel @Inject constructor(
     private val expenseRepository: ExpenseRepository,
+    private val recordRemover: com.moneyplanner.data.repo.RecordRemover,
     categoryRepository: CategoryRepository,
     private val today: TodayProvider,
     savedStateHandle: SavedStateHandle
@@ -121,8 +122,12 @@ class TransactionsViewModel @Inject constructor(
         categoryFilter.value = categoryId
     }
 
+    /** Deletes through the obligation when the expense was half of a payment. */
     fun delete(expenseId: Long) {
-        viewModelScope.launch { expenseRepository.delete(expenseId) }
+        viewModelScope.launch {
+            val existing = expenseRepository.getById(expenseId)
+            if (existing != null) recordRemover.deleteExpense(existing) else expenseRepository.delete(expenseId)
+        }
     }
 }
 
@@ -153,6 +158,7 @@ class ExpenseEditorViewModel @Inject constructor(
     private val expenseRepository: ExpenseRepository,
     private val metadataRepository: ExpenseMetadataRepository,
     private val linkedPaymentSync: LinkedPaymentSync,
+    private val recordRemover: com.moneyplanner.data.repo.RecordRemover,
     categoryRepository: CategoryRepository,
     peopleRepository: PeopleRepository,
     vehicleRepository: VehicleRepository,
@@ -217,7 +223,8 @@ class ExpenseEditorViewModel @Inject constructor(
                         notes = existing.notes,
                         tagsText = tags.joinToString(", "),
                         isEditing = true,
-                        isLinked = existing.linkType != com.moneyplanner.domain.model.ExpenseLinkType.NONE
+                        isLinked = existing.linkType != com.moneyplanner.domain.model.ExpenseLinkType.NONE,
+                        linkType = existing.linkType
                     )
                 }
             }
@@ -320,7 +327,6 @@ class ExpenseEditorViewModel @Inject constructor(
                 description = parsed.description.ifBlank { current.description },
                 categoryId = parsed.categoryId ?: current.categoryId,
                 date = parsed.date ?: current.date,
-                paymentMethod = parsed.paymentMethod ?: current.paymentMethod,
                 amountError = null,
                 categoryError = null,
                 heardText = spoken,
@@ -328,6 +334,9 @@ class ExpenseEditorViewModel @Inject constructor(
                 heardNothingUsable = !parsed.isUsable
             )
         }
+        // Through the same path as tapping a method, so "500 lunch cash" lands on the cash
+        // account and "on my credit card" picks the card, instead of only the label moving.
+        parsed.paymentMethod?.let(::selectPaymentMethod)
     }
 
     fun dismissHeard() = _form.update {
@@ -337,6 +346,9 @@ class ExpenseEditorViewModel @Inject constructor(
     /** Saves, or reports what is missing. Returns true when the entry was stored. */
     fun save(onSaved: () -> Unit) {
         val current = _form.value
+        // One save at a time. A second tap while the first is still writing would
+        // otherwise record the same expense twice.
+        if (current.isSaving) return
         val amount = Money.parseOrNull(current.amountText)
 
         if (amount == null || !amount.isPositive) {
@@ -347,6 +359,7 @@ class ExpenseEditorViewModel @Inject constructor(
             _form.update { it.copy(categoryError = "Choose a category") }
             return
         }
+        _form.update { it.copy(isSaving = true) }
 
         viewModelScope.launch {
             val expense = Expense(
@@ -385,10 +398,15 @@ class ExpenseEditorViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Deletes the expense and whatever it was half of: a paid bill goes back to unpaid
+     * rather than staying paid while the money returns to the balance.
+     */
     fun delete(onDeleted: () -> Unit) {
         val id = expenseId ?: return
         viewModelScope.launch {
-            expenseRepository.delete(id)
+            val existing = expenseRepository.getById(id)
+            if (existing != null) recordRemover.deleteExpense(existing) else expenseRepository.delete(id)
             onDeleted()
         }
     }
@@ -420,6 +438,11 @@ data class ExpenseForm(
     val isEditing: Boolean = false,
     /** True when this expense was created by paying an EMI, a bill or a yearly expense. */
     val isLinked: Boolean = false,
+    /** What it is linked to, so a delete can say what else goes with it. */
+    val linkType: com.moneyplanner.domain.model.ExpenseLinkType =
+        com.moneyplanner.domain.model.ExpenseLinkType.NONE,
+    /** Set while a save is being written, so a second tap cannot store it twice. */
+    val isSaving: Boolean = false,
     /** What the speech recogniser heard, shown back so a misheard entry is obvious. */
     val heardText: String? = null,
     val heardSummary: String? = null,

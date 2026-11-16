@@ -41,6 +41,7 @@ class AppViewModel @Inject constructor(
     private val settingsStore: SettingsStore,
     private val profileRepository: ProfileRepository,
     private val snapshotRepository: SnapshotRepository,
+    private val ledgerRepair: com.moneyplanner.data.repo.LedgerRepair,
     private val reminderScheduler: ReminderScheduler,
     @IoDispatcher private val io: CoroutineDispatcher
 ) : ViewModel() {
@@ -60,8 +61,18 @@ class AppViewModel @Inject constructor(
                 settingsStore.markCashAccountAdded()
             }
 
+            // Once per install: payments an older version recorded without the expense
+            // that takes them off the balance get that expense now. Failing here must
+            // not stop the app opening, so it is retried on the next launch instead.
+            if (!settingsStore.isLedgerRepairDone()) {
+                runCatching { ledgerRepair.restoreMissingPaymentExpenses() }
+                    .onSuccess { settingsStore.markLedgerRepairDone() }
+            }
+
+            // Only fills a gap. Opening the app is not a choice of hour, and replacing the
+            // queued check on every launch would move it to whenever the app was opened.
             if (settings.remindersEnabled) {
-                reminderScheduler.scheduleDailyCheck(settings.reminderHour)
+                reminderScheduler.ensureDailyCheck(settings.reminderHour)
             }
             started.value = true
             keepWidgetCurrent()

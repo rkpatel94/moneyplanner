@@ -457,6 +457,23 @@ fun SettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        // Shown next to the date above, because that date may be a backup
+                        // file made by hand: it can be recent while the weekly copy into
+                        // this folder has been failing, and only this line says so.
+                        state.settings.autoBackupFailedEpochDay?.let { day ->
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "The backup to this folder on " + DateUtil.formatDate(
+                                    java.time.LocalDate.ofEpochDay(day)
+                                ) + " failed" +
+                                    (state.settings.autoBackupFailureReason
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { ": $it." } ?: ".") +
+                                    " Tap Back up now to try again, or choose the folder again.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.negative
+                            )
+                        }
                         Spacer(Modifier.height(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(

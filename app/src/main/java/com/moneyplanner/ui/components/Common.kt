@@ -28,6 +28,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -610,6 +614,31 @@ fun QuickActionChip(
             )
         }
     }
+}
+
+/**
+ * A delete button's click, guarded by a confirmation.
+ *
+ * Returns the lambda the button should call; the dialog is shown while a delete is pending.
+ * Several screens deleted a record on one tap with no way back, beside buttons that look
+ * much the same, and a stray tap there removes a payment someone actually made.
+ */
+@Composable
+fun rememberDeleteConfirmation(
+    title: String,
+    message: String,
+    onConfirm: () -> Unit
+): () -> Unit {
+    var pending by remember { mutableStateOf(false) }
+    if (pending) {
+        ConfirmDialog(
+            title = title,
+            message = message,
+            onConfirm = onConfirm,
+            onDismiss = { pending = false }
+        )
+    }
+    return { pending = true }
 }
 
 /**

@@ -652,7 +652,7 @@ object MoneyAssistant {
             if (snapshot.goals.isNotEmpty()) {
                 add("How much have I saved?")
             }
-            if (snapshot.accounts.size > 1) {
+            if (snapshot.accounts.count { !it.isArchived } > 1) {
                 add("How much cash do I have?")
             }
             if (snapshot.bills.any { it.isActive } || snapshot.emis.any { it.isActive }) {

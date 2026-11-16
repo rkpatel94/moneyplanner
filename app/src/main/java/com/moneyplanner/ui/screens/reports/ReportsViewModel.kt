@@ -103,7 +103,9 @@ class ReportsViewModel @Inject constructor(
         // Income against spending per month, each category against its own recent
         // average, and what moved through each account over the same six months.
         val monthsBack = ReportsCalculator.DEFAULT_TREND_MONTHS
-        val summaries = ReportsCalculator.monthlyTrend(snapshot, monthsBack)
+        // Ending on the month on screen. It used to stay on the current month whichever
+        // month the rest of the page had been moved to.
+        val summaries = ReportsCalculator.monthlyTrend(snapshot, monthsBack, upTo = month)
             .map { row -> if (row.month == month) row.copy(isPartial = row.isPartial) else row }
         val comparison = ReportsCalculator.categoryComparison(snapshot, month)
             .filter { it.thisMonth.isPositive || it.hasBaseline }

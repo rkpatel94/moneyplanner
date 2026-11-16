@@ -431,7 +431,8 @@ fun CreditCardEntity.toDomain() = CreditCard(
     dueDayOfMonth = dueDayOfMonth,
     isActive = isActive,
     notes = notes,
-    lastUpdated = if (lastUpdatedEpochDay > 0) lastUpdatedEpochDay.toDate() else null
+    lastUpdated = if (lastUpdatedEpochDay > 0) lastUpdatedEpochDay.toDate() else null,
+    statementDate = statementDateEpochDay?.toDate()
 )
 
 fun CreditCard.toEntity() = CreditCardEntity(
@@ -446,7 +447,8 @@ fun CreditCard.toEntity() = CreditCardEntity(
     dueDayOfMonth = dueDayOfMonth,
     isActive = isActive,
     notes = notes,
-    lastUpdatedEpochDay = lastUpdated.toEpochOrNull() ?: 0L
+    lastUpdatedEpochDay = lastUpdated.toEpochOrNull() ?: 0L,
+    statementDateEpochDay = statementDate.toEpochOrNull()
 )
 
 fun CreditCardPaymentEntity.toDomain() = CreditCardPayment(
@@ -455,7 +457,18 @@ fun CreditCardPaymentEntity.toDomain() = CreditCardPayment(
     amount = Money(amountPaise),
     paidDate = paidDateEpochDay.toDate(),
     accountId = accountId,
-    notes = notes
+    notes = notes,
+    paymentMethod = PaymentMethod.fromName(paymentMethod)
+)
+
+fun CreditCardPayment.toEntity() = CreditCardPaymentEntity(
+    id = id,
+    cardId = cardId,
+    amountPaise = amount.paise,
+    paidDateEpochDay = paidDate.toEpoch(),
+    accountId = accountId,
+    notes = notes,
+    paymentMethod = paymentMethod.name
 )
 
 fun RecurringBillEntity.toDomain() = RecurringBill(

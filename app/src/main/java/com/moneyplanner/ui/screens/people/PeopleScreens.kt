@@ -419,7 +419,12 @@ fun PersonDetailScreen(
                             )
                             if (row.isFullySettled) StatusPill(text = "Settled")
                         }
-                        IconButton(onClick = { viewModel.deleteEntry(row.entry.id) }) {
+                        val askDeleteEntry = com.moneyplanner.ui.components.rememberDeleteConfirmation(
+                            title = "Delete this entry?",
+                            message = "The balance with this person is worked out again without it.",
+                            onConfirm = { viewModel.deleteEntry(row.entry.id) }
+                        )
+                        IconButton(onClick = askDeleteEntry) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete entry")
                         }
                     }
@@ -461,7 +466,13 @@ fun PersonDetailScreen(
                                 colors.negative
                             }
                         )
-                        IconButton(onClick = { viewModel.deleteSettlement(settlement.id) }) {
+                        val askDeleteSettlement = com.moneyplanner.ui.components.rememberDeleteConfirmation(
+                            title = "Delete this payment?",
+                            message = "The money goes back into the balance with this person, and " +
+                                "out of the account it was recorded against.",
+                            onConfirm = { viewModel.deleteSettlement(settlement.id) }
+                        )
+                        IconButton(onClick = askDeleteSettlement) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete settlement")
                         }
                     }
@@ -863,6 +874,20 @@ fun SharedExpenseScreen(
                 onSelect = viewModel::updateSplitType,
                 optionLabel = { it.label }
             )
+
+            // "One person pays all" needs to know who that person is. Without this choice
+            // it was always the user, so recording a friend's ticket created no debt at all.
+            if (form.splitType == SplitType.FULL_ON_ONE) {
+                val bearers = listOf<Long?>(null) +
+                    options.people.filter { it.id in form.participantIds }.map { it.id }
+                ChipSelector(
+                    label = "Whose cost it is",
+                    options = bearers,
+                    selected = form.fullPayerId,
+                    onSelect = viewModel::updateFullPayer,
+                    optionLabel = { id -> if (id == null) "Mine" else options.people.first { it.id == id }.name }
+                )
+            }
 
             if (form.splitType == SplitType.EXACT || form.splitType == SplitType.PERCENTAGE) {
                 SectionCard(title = "Each share") {

@@ -26,6 +26,12 @@ import javax.inject.Singleton
  * A folder that has gone away is a real possibility — the user may have deleted it,
  * moved an SD card, or revoked the grant — so that case is reported as a permanent
  * failure rather than retried forever. A write that merely failed once is worth retrying.
+ *
+ * Neither result reaches the user by itself: WorkManager keeps it, and nothing in the app
+ * reads it. What the user sees is the failure [AutoBackupManager.runBackup] records in the
+ * settings, with the day and the reason, which the settings screen shows until a later
+ * run succeeds. Every attempt goes through there, retries included, so the record is
+ * always the outcome of the most recent one.
  */
 @HiltWorker
 class AutoBackupWorker @AssistedInject constructor(

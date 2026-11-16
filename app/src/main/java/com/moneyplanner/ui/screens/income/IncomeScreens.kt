@@ -211,7 +211,13 @@ fun IncomeScreen(
                             )
                         }
                         MoneyText(receipt.amount, colorBySign = true, showSign = true)
-                        IconButton(onClick = { viewModel.deleteReceipt(receipt.id) }) {
+                        val askDeleteReceipt = com.moneyplanner.ui.components.rememberDeleteConfirmation(
+                            title = "Delete this receipt?",
+                            message = "Your balance is worked out again without it, and a scheduled " +
+                                "income goes back to expected.",
+                            onConfirm = { viewModel.deleteReceipt(receipt.id) }
+                        )
+                        IconButton(onClick = askDeleteReceipt) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete receipt")
                         }
                     }

@@ -3,19 +3,27 @@ package com.moneyplanner.data.backup
 import android.content.Context
 import android.net.Uri
 import androidx.room.withTransaction
-import com.moneyplanner.core.money.Money
 import com.moneyplanner.data.db.AppDatabase
 import com.moneyplanner.data.db.entity.CategoryEntity
 import com.moneyplanner.data.db.entity.ExpenseEntity
 import com.moneyplanner.di.IoDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
-import com.moneyplanner.domain.model.PaymentMethod
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Adds expenses from a CSV file, such as one exported from this app or a spreadsheet.
+ *
+ * The file is read and checked in full before anything is written, through [ExpenseCsv],
+ * which is also what the export writes with. Rows that cannot be read are skipped and
+ * counted rather than abandoning the file, and the rows that can are saved in one
+ * transaction, so an import either adds all of them or, if the database fails part-way,
+ * none.
+ */
 @Singleton
 class CsvExpenseImporter @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -23,66 +31,116 @@ class CsvExpenseImporter @Inject constructor(
     @IoDispatcher private val io: CoroutineDispatcher
 ) {
     suspend fun import(uri: Uri): CsvImportResult = withContext(io) {
-        runCatching {
-            val lines = context.contentResolver.openInputStream(uri)?.bufferedReader()?.readLines()
-                ?: return@runCatching CsvImportResult.Failure("The selected file could not be read.")
-            if (lines.size < 2) return@runCatching CsvImportResult.Failure("The CSV has no expense rows.")
-            val header = parseLine(lines.first()).map { it.trim().lowercase() }
-            fun column(name: String) = header.indexOf(name)
-            val dateIndex = column("date"); val descriptionIndex = column("description")
-            val categoryIndex = column("category"); val amountIndex = column("amount")
-            if (listOf(dateIndex, descriptionIndex, categoryIndex, amountIndex).any { it < 0 }) {
-                return@runCatching CsvImportResult.Failure("Use a CSV with Date, Description, Category and Amount columns.")
-            }
-            val paymentIndex = column("payment method"); val notesIndex = column("notes")
-            val categories = database.categoryDao().getAll().toMutableList()
-            var imported = 0; var skipped = 0
+        val text = readText(uri)
+            ?: return@withContext CsvImportResult.Failure("The selected file could not be read.")
+
+        val parsed = when (val read = ExpenseCsv.read(text)) {
+            is ExpenseCsv.ReadResult.Unusable -> return@withContext CsvImportResult.Failure(read.message)
+            is ExpenseCsv.ReadResult.Rows -> read
+        }
+
+        try {
+            var imported = 0
+            var skipped = parsed.skipped
             database.withTransaction {
-                lines.drop(1).forEach { line ->
-                    val values = parseLine(line)
-                    val date = values.getOrNull(dateIndex)?.let(LocalDate::parse)
-                    val amount = values.getOrNull(amountIndex)?.let(Money::parseOrNull)
-                    val categoryName = values.getOrNull(categoryIndex)?.trim().orEmpty()
-                    if (date == null || amount == null || !amount.isPositive || categoryName.isBlank()) { skipped++; return@forEach }
-                    var category = categories.firstOrNull { it.name.equals(categoryName, true) && it.type == "EXPENSE" }
+                val categories = database.categoryDao().getAll().toMutableList()
+                val createdOn = LocalDate.now().toEpochDay()
+                parsed.rows.forEach { row ->
+                    val category = findOrCreateCategory(row.category, categories)
                     if (category == null) {
-                        val id = database.categoryDao().insert(CategoryEntity(name = categoryName.take(40), type = "EXPENSE", isCustom = true))
-                        category = if (id > 0) CategoryEntity(id = id, name = categoryName.take(40), type = "EXPENSE", isCustom = true)
-                        else database.categoryDao().findByName(categoryName.take(40), "EXPENSE")
-                        category?.let(categories::add)
+                        skipped++
+                        return@forEach
                     }
-                    val paymentText = values.getOrNull(paymentIndex).orEmpty()
-                    val payment = PaymentMethod.entries.firstOrNull { it.name.equals(paymentText, true) || it.label.equals(paymentText, true) } ?: PaymentMethod.OTHER
-                    database.expenseDao().insert(ExpenseEntity(
-                        amountPaise = amount.paise, description = values.getOrNull(descriptionIndex).orEmpty(),
-                        categoryId = category!!.id, dateEpochDay = date.toEpochDay(), paymentMethod = payment.name,
-                        notes = values.getOrNull(notesIndex).orEmpty(), createdAtEpochDay = LocalDate.now().toEpochDay()
-                    ))
+                    database.expenseDao().insert(
+                        ExpenseEntity(
+                            amountPaise = row.amount.paise,
+                            description = row.description,
+                            categoryId = category.id,
+                            dateEpochDay = row.date.toEpochDay(),
+                            paymentMethod = row.paymentMethod.name,
+                            notes = row.notes,
+                            createdAtEpochDay = createdOn
+                        )
+                    )
                     imported++
                 }
             }
-            CsvImportResult.Success(imported, skipped)
-        }.getOrElse { CsvImportResult.Failure("The CSV could not be imported. Check its dates and amounts.") }
+            CsvImportResult.Success(imported, skipped, parsed.endedInsideQuotes)
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            CsvImportResult.Failure("The expenses could not be saved, so none were imported.")
+        }
     }
 
-    /** RFC 4180-style fields, including doubled quote characters. */
-    private fun parseLine(line: String): List<String> {
-        val result = mutableListOf<String>(); val cell = StringBuilder(); var quoted = false; var index = 0
-        while (index < line.length) {
-            val char = line[index]
-            when {
-                char == '"' && quoted && index + 1 < line.length && line[index + 1] == '"' -> { cell.append(char); index++ }
-                char == '"' -> quoted = !quoted
-                char == ',' && !quoted -> { result += cell.toString(); cell.clear() }
-                else -> cell.append(char)
-            }
-            index++
+    /** The whole file as UTF-8, which is what Excel's "CSV UTF-8" and this app's export are. */
+    private fun readText(uri: Uri): String? =
+        try {
+            context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        } catch (error: Exception) {
+            null
         }
-        result += cell.toString(); return result
+
+    /**
+     * The expense category with this name, matched regardless of case, created as a custom
+     * category the first time a file mentions it. Null only if it can be neither found nor
+     * made, and the row is then skipped rather than saved against the wrong category.
+     */
+    private suspend fun findOrCreateCategory(
+        name: String,
+        known: MutableList<CategoryEntity>
+    ): CategoryEntity? {
+        known.firstOrNull { it.name.equals(name, ignoreCase = true) && it.type == "EXPENSE" }
+            ?.let { return it }
+
+        val stored = name.take(40)
+        val id = database.categoryDao().insert(
+            CategoryEntity(name = stored, type = "EXPENSE", isCustom = true)
+        )
+        val created = if (id > 0) {
+            CategoryEntity(id = id, name = stored, type = "EXPENSE", isCustom = true)
+        } else {
+            database.categoryDao().findByName(stored, "EXPENSE")
+        }
+        created?.let(known::add)
+        return created
     }
 }
 
 sealed interface CsvImportResult {
-    data class Success(val imported: Int, val skipped: Int) : CsvImportResult
+    data class Success(
+        val imported: Int,
+        val skipped: Int,
+        /** The file had a quote that was never closed, so its last rows may not have been read. */
+        val endedInsideQuotes: Boolean = false
+    ) : CsvImportResult
+
     data class Failure(val message: String) : CsvImportResult
+
+    /**
+     * What to tell the user. The counts are the point: a skipped row is otherwise invisible,
+     * and someone importing two hundred expenses deserves to know that three did not arrive.
+     */
+    fun message(): String = when (this) {
+        is Failure -> message
+        is Success -> buildString {
+            when {
+                imported == 0 && skipped == 0 -> append("No expenses were found in the file.")
+                imported == 0 -> append(
+                    "No expenses were imported: ${rows(skipped)} could not be read. Each needs " +
+                        "a date written as YYYY-MM-DD, a category and an amount above zero."
+                )
+                skipped == 0 -> append("Imported ${expenses(imported)}.")
+                else -> append(
+                    "Imported ${expenses(imported)}. Skipped ${rows(skipped)} that could not be read."
+                )
+            }
+            if (endedInsideQuotes) {
+                append(" A quotation mark in the file is never closed, so its last rows may be missing.")
+            }
+        }
+    }
+
+    private fun expenses(count: Int) = if (count == 1) "1 expense" else "$count expenses"
+
+    private fun rows(count: Int) = if (count == 1) "1 row" else "$count rows"
 }
